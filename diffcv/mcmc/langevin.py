@@ -8,6 +8,7 @@ class LangevinDynamics(eqx.Module):
     gradient_func: eqx.Module
     n_samples: int = 1000
     gamma: float = 5e-3
+    burnin_steps: int = 0
     
     @eqx.filter_jit
     def __call__(self, x, key: random.PRNGKey):
@@ -29,4 +30,5 @@ class LangevinDynamics(eqx.Module):
             return new_x, prev_x
         keys = random.split(key, self.n_samples)
         final_xs, xs = jax.lax.scan(langevin_step, init=x, xs=keys)
-        return final_xs, np.vstack(xs)
+        xs = np.vstack(xs)
+        return final_xs, xs[self.burnin_steps:]

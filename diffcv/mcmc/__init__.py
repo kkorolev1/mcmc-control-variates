@@ -1,1 +1,1 @@
-from mcmc.langevin import LangevinDynamics
+from .langevin import LangevinDynamics
