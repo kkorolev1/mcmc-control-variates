@@ -32,3 +32,9 @@ class LangevinDynamics(eqx.Module):
         final_xs, xs = jax.lax.scan(langevin_step, init=x, xs=keys)
         xs = np.vstack(xs)
         return final_xs, xs[self.burnin_steps:]
+    
+    @eqx.filter_jit
+    def sample(self, x, key: random.PRNGKey):
+        return self(x, key)
+    
+    
