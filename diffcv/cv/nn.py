@@ -1,6 +1,6 @@
 import equinox as eqx
 from jax import nn, random
-import jax.numpy as np
+import jax.numpy as jnp
 
 class ControlVariateModel(eqx.Module):
     """Control Variate NN model."""
@@ -12,7 +12,7 @@ class ControlVariateModel(eqx.Module):
         in_size=1,
         width_size=4096,
         depth=1,
-        activation=nn.relu,
+        activation=nn.sigmoid,
         key=random.PRNGKey(45),
     ):
         self.mlp = eqx.nn.MLP(
@@ -32,5 +32,5 @@ class ControlVariateModel(eqx.Module):
             as the model is intended to be vmapped over batches of data.
         """
         y = self.mlp(x).squeeze()
-        return y * np.exp(-y * y)
+        return y
         
