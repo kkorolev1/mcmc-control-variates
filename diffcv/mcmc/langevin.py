@@ -1,6 +1,6 @@
 import equinox as eqx
 import jax
-import jax.numpy as np
+import jax.numpy as jnp
 from jax import random
 
 
@@ -26,11 +26,11 @@ class LangevinDynamics(eqx.Module):
                 key (random.PRNGKey): PRNGKey for random draws
             """
             z = random.normal(key, shape=x.shape)
-            new_x = prev_x + self.gamma * jax.vmap(self.gradient_func)(prev_x) + np.sqrt(2 * self.gamma) * z
+            new_x = prev_x + self.gamma * jax.vmap(self.gradient_func)(prev_x) + jnp.sqrt(2 * self.gamma) * z
             return new_x, prev_x
         keys = random.split(key, self.n_samples)
         final_xs, xs = jax.lax.scan(langevin_step, init=x, xs=keys)
-        xs = np.vstack(xs)
+        xs = jnp.vstack(xs)
         return final_xs, xs[self.burnin_steps:]
     
     @eqx.filter_jit
