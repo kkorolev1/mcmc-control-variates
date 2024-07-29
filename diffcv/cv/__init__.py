@@ -1,10 +1,11 @@
-from .nn import ControlVariateModel
+from .nn import CVMLP, CVLinear
 from .generator import Generator
 from .loss import CVLoss, DiffLoss, CVALSLoss
 from .training import CVTrainer
 
 __all__ = [
-    "ControlVariateModel",
+    "CVMLP",
+    "CVLinear",
     "Generator",
     "CVLoss",
     "DiffLoss",

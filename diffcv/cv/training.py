@@ -5,7 +5,8 @@ import optax
 import typing as tp
 import jax_dataloader as jdl
 from tqdm.auto import tqdm
-from logger import Logger
+
+from diffcv.logger import Logger
 
 
 class CVTrainer:

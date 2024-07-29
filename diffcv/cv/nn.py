@@ -2,8 +2,7 @@ import equinox as eqx
 from jax import nn, random
 import jax.numpy as jnp
 
-class ControlVariateModel(eqx.Module):
-    """Control Variate NN model."""
+class CVMLP(eqx.Module):
 
     mlp: eqx.Module
 
@@ -33,4 +32,12 @@ class ControlVariateModel(eqx.Module):
         """
         y = self.mlp(x).squeeze()
         return y
-        
+
+
+class CVLinear(CVMLP):
+    def __init__(
+        self,
+        in_size=1,
+        key=random.PRNGKey(45),
+    ):
+        super().__init__(in_size=in_size, depth=0, key=key)
