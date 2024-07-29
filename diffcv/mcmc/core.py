@@ -14,14 +14,14 @@ def sample_multichain(sampler: eqx.Module, dim: int, key: jax.random.PRNGKey, n_
     return samples
 
 
-def estimate_mcmc(fn: tp.Callable, sampler: eqx.Module, dim: int, key: jax.random.PRNGKey, n_chains: int = 1000):
-    samples = sample_multichain(sampler, dim, key, n_chains)
+def estimate_mcmc(fn: tp.Callable, sampler: eqx.Module, dim: int, key: jax.random.PRNGKey, n_chains: int = 1000, init_std: float = 5):
+    samples = sample_multichain(sampler, dim, key, n_chains=n_chains, init_std=init_std)
     return jax.vmap(fn)(samples).mean()
 
 
-def estimate_n_mcmc(fn: tp.Callable, sampler: eqx.Module, dim: int, key: jax.random.PRNGKey, n_chains: int = 100, n_runs: int = 1000):
+def estimate_n_mcmc(fn: tp.Callable, sampler: eqx.Module, dim: int, key: jax.random.PRNGKey, n_chains: int = 100, init_std: float = 5, n_runs: int = 1000):
     estimates = []
     for exp_key in jax.random.split(key, n_runs):
-        estimates.append(estimate_mcmc(fn, sampler, dim, exp_key, n_chains = n_chains))   
+        estimates.append(estimate_mcmc(fn, sampler, dim, exp_key, n_chains=n_chains, init_std=init_std))   
     estimates = jnp.stack(estimates)
     return estimates
