@@ -2,13 +2,13 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import typing as tp
-from functools import partial
 
 from .generator import Generator
 
 
 def l2_loss(x):
     return (x ** 2).mean()
+
 
 def l2_reg(model: eqx.Module, alpha=0.1):
     return alpha * sum(l2_loss(w) for w in jax.tree_leaves(eqx.filter(model, eqx.is_array)))
@@ -28,6 +28,18 @@ class CVLoss:
         return loss.mean() + l2_reg(model, alpha=self.l2_alpha)
 
 
+class VarLoss:
+    def __init__(self, fn: tp.Callable, grad_log_p: tp.Callable):
+        self.fn = fn
+        self.grad_log_p = grad_log_p
+    
+    def __call__(self, model: eqx.Module, data: jnp.ndarray, batch_index: jnp.ndarray, key: jax.random.PRNGKey):
+        generator = Generator(self.grad_log_p, model)
+        batch_size = data.shape[0]
+        residual = jax.vmap(self.fn)(data) + jax.vmap(generator)(data) - model.c
+        return (residual ** 2).sum() / (batch_size - 1)
+    
+    
 class DiffLoss:
     def __init__(self, fn: tp.Callable, grad_log_p: tp.Callable, noise_std: float = 1.0):
         self.fn = fn

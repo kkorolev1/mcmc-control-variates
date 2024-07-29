@@ -1,4 +1,5 @@
 import equinox as eqx
+import jax
 from jax import nn, random
 import jax.numpy as jnp
 
@@ -41,3 +42,4 @@ class CVLinear(CVMLP):
         key=random.PRNGKey(45),
     ):
         super().__init__(in_size=in_size, depth=0, key=key)
+
