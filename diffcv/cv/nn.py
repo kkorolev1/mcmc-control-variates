@@ -12,7 +12,7 @@ class ControlVariateModel(eqx.Module):
         in_size=1,
         width_size=4096,
         depth=1,
-        activation=nn.sigmoid,
+        activation=nn.elu,
         key=random.PRNGKey(45),
     ):
         self.mlp = eqx.nn.MLP(

@@ -37,4 +37,3 @@ class LangevinDynamics(eqx.Module):
     def sample(self, x, key: random.PRNGKey):
         return self(x, key)
     
-    

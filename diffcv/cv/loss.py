@@ -15,11 +15,11 @@ def l2_reg(model: eqx.Module, alpha=0.1):
 
 
 class CVLoss:
-    def __init__(self,  fn: tp.Callable, l2_alpha: float = 0.1):
+    def __init__(self,  fn: tp.Callable, l2_alpha: float = 0.0):
         self.fn = fn
         self.l2_alpha = l2_alpha
     
-    def __call__(self, model: eqx.Module, data: jnp.ndarray, batch_index: jnp.ndarray):
+    def __call__(self, model: eqx.Module, data: jnp.ndarray, batch_index: jnp.ndarray, key: jax.random.PRNGKey):
         g_vals = jax.vmap(model)(data)
         f_vals = jax.vmap(self.fn)(data)
         f_wave = f_vals - f_vals.mean()
@@ -28,8 +28,21 @@ class CVLoss:
         return loss.mean() + l2_reg(model, alpha=self.l2_alpha)
 
 
+class DiffLoss:
+    def __init__(self, fn: tp.Callable, grad_log_p: tp.Callable, noise_std: float = 1.0):
+        self.fn = fn
+        self.grad_log_p = grad_log_p
+        self.noise_std = noise_std
+    
+    def __call__(self, model: eqx.Module, data: jnp.ndarray, batch_index: jnp.ndarray, key: jax.random.PRNGKey):
+        generator = Generator(self.grad_log_p, model)        
+        noise = self.noise_std * jax.random.normal(key, shape=data.shape)
+        perturbed_data = data + noise
+        return l2_loss(jax.vmap(self.fn)(perturbed_data) + jax.vmap(generator)(perturbed_data) - jax.vmap(self.fn)(data) - jax.vmap(generator)(data))
+
+
 class CVALSLoss:    
-    def __init__(self, fn: tp.Callable, grad_log_p: tp.Callable, switch_steps: int = 100, l2_alpha: float = 0.1):
+    def __init__(self, fn: tp.Callable, grad_log_p: tp.Callable, switch_steps: int = 100, l2_alpha: float = 0.0):
         self.fn = fn
         self.grad_log_p = grad_log_p
         self.switch_steps = switch_steps
@@ -37,7 +50,7 @@ class CVALSLoss:
     
     @staticmethod
     def grad_loss(inputs):
-        model, data, generator, fn, l2_alpha = inputs
+        data, generator, fn = inputs
         return l2_loss(jax.vmap(jax.jacfwd(fn))(data) + jax.vmap(jax.jacfwd(generator))(data))
 
     @staticmethod
@@ -55,12 +68,10 @@ class CVALSLoss:
         generator = Generator(self.grad_log_p, model)
         condition = (batch_index // self.switch_steps) % 2 == 1
         
-        inputs = (model, data, generator, self.fn, self.l2_alpha)
-        
         loss_value = jax.lax.cond(
             jnp.all(condition),
-            lambda: CVALSLoss.grad_loss(inputs),
-            lambda: CVALSLoss.cv_loss(inputs),
+            lambda: CVALSLoss.grad_loss((data, generator, self.fn)),
+            lambda: CVALSLoss.cv_loss((model, data, generator, self.fn, self.l2_alpha)),
         )
         
         return loss_value
