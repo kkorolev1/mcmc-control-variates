@@ -10,18 +10,21 @@ class CVMLP(eqx.Module):
     def __init__(
         self,
         in_size=1,
+        out_size=1,
         width_size=4096,
         depth=1,
         activation=nn.elu,
-        key=random.PRNGKey(45),
+        use_final_bias=True,
+        key=random.PRNGKey(50),
     ):
         self.mlp = eqx.nn.MLP(
             in_size=in_size,
-            out_size=1,
+            out_size=out_size,
             width_size=width_size,
             depth=depth,
             activation=activation,
             key=key,
+            use_final_bias=use_final_bias
         )
 
     @eqx.filter_jit
@@ -39,7 +42,9 @@ class CVLinear(CVMLP):
     def __init__(
         self,
         in_size=1,
-        key=random.PRNGKey(45),
+        out_size=1,
+        bias=True,
+        key=random.PRNGKey(50),
     ):
-        super().__init__(in_size=in_size, depth=0, key=key)
+        super().__init__(in_size=in_size, out_size=out_size, depth=0, key=key, use_final_bias=bias)
 

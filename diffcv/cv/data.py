@@ -7,13 +7,13 @@ from diffcv.mcmc import sample_multichain
 from diffcv.utils import inf_loop
 
 
-def get_data_from_sampler(sampler: eqx.Module, dim: int, key: jax.random.PRNGKey, n_chains: int, init_std: float):
-    training_samples = sample_multichain(sampler, dim, key, n_chains=n_chains, init_std=init_std)
+def get_data_from_sampler(batch_size: int, sampler: eqx.Module, key: jax.random.PRNGKey, n_chains: int, init_std: float):
+    training_samples = sample_multichain(sampler, key, n_chains=n_chains, init_std=init_std)
     dataset = jdl.ArrayDataset(training_samples)
     dataloader = jdl.DataLoader(
         dataset,
         backend="jax",
-        batch_size=1024,
+        batch_size=batch_size,
         shuffle=True
     )
     dataloader = inf_loop(dataloader)

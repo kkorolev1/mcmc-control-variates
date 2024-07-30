@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import typing as tp
 
-from .generator import Generator
+from .generator import ScalarGenerator
 
 
 def l2_loss(x):
@@ -29,36 +29,39 @@ class CVLoss:
 
 
 class VarLoss:
-    def __init__(self, fn: tp.Callable, grad_log_p: tp.Callable):
+    def __init__(self, fn: tp.Callable, grad_log_p: tp.Callable, generator_cls = ScalarGenerator):
         self.fn = fn
         self.grad_log_p = grad_log_p
+        self.generator_cls = generator_cls
     
     def __call__(self, model: eqx.Module, data: jnp.ndarray, batch_index: jnp.ndarray, key: jax.random.PRNGKey):
-        generator = Generator(self.grad_log_p, model)
+        generator = self.generator_cls(self.grad_log_p, model)
         batch_size = data.shape[0]
         residual = jax.vmap(self.fn)(data) + jax.vmap(generator)(data) - model.c
         return (residual ** 2).sum() / (batch_size - 1)
     
     
 class DiffLoss:
-    def __init__(self, fn: tp.Callable, grad_log_p: tp.Callable, noise_std: float = 1.0):
+    def __init__(self, fn: tp.Callable, grad_log_p: tp.Callable, noise_std: float = 1.0, generator_cls = ScalarGenerator):
         self.fn = fn
         self.grad_log_p = grad_log_p
         self.noise_std = noise_std
+        self.generator_cls = generator_cls
     
     def __call__(self, model: eqx.Module, data: jnp.ndarray, batch_index: jnp.ndarray, key: jax.random.PRNGKey):
-        generator = Generator(self.grad_log_p, model)        
+        generator = self.generator_cls(self.grad_log_p, model)     
         noise = self.noise_std * jax.random.normal(key, shape=data.shape)
         perturbed_data = data + noise
         return l2_loss(jax.vmap(self.fn)(perturbed_data) + jax.vmap(generator)(perturbed_data) - jax.vmap(self.fn)(data) - jax.vmap(generator)(data))
 
 
 class CVALSLoss:    
-    def __init__(self, fn: tp.Callable, grad_log_p: tp.Callable, switch_steps: int = 100, l2_alpha: float = 0.0):
+    def __init__(self, fn: tp.Callable, grad_log_p: tp.Callable, switch_steps: int = 100, l2_alpha: float = 0.0, generator_cls = ScalarGenerator):
         self.fn = fn
         self.grad_log_p = grad_log_p
         self.switch_steps = switch_steps
         self.l2_alpha = l2_alpha
+        self.generator_cls = generator_cls
     
     @staticmethod
     def grad_loss(inputs):
@@ -77,7 +80,7 @@ class CVALSLoss:
         return loss.mean() + l2_reg(model, alpha=l2_alpha)
     
     def __call__(self, model: eqx.Module, data: jnp.ndarray, batch_index: jnp.ndarray):
-        generator = Generator(self.grad_log_p, model)
+        generator = self.generator_cls(self.grad_log_p, model)
         condition = (batch_index // self.switch_steps) % 2 == 1
         
         loss_value = jax.lax.cond(

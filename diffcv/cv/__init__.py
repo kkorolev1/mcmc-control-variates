@@ -1,14 +1,17 @@
 from .nn import CVMLP, CVLinear
-from .generator import Generator
+from .generator import ScalarGenerator, VectorGenerator
 from .loss import CVLoss, DiffLoss, CVALSLoss
 from .training import CVTrainer
+from .data import get_data_from_sampler
 
 __all__ = [
     "CVMLP",
     "CVLinear",
-    "Generator",
+    "ScalarGenerator",
+    "VectorGenerator",
     "CVLoss",
     "DiffLoss",
     "CVALSLoss",
-    "CVTrainer"
+    "CVTrainer",
+    "get_data_from_sampler"
 ]

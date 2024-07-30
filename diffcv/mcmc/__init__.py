@@ -1,9 +1,10 @@
-from .langevin import LangevinDynamics
-from .core import sample_multichain, estimate_mcmc, estimate_n_mcmc
+from .langevin import ULA
+from .pyro import HMC
+from .estimator import estimate_mcmc, estimate_n_mcmc
 
 __all__ = [
-    "LangevinDynamics",
-    "sample_multichain",
+    "ULA",
+    "HMC",
     "estimate_mcmc",
     "estimate_n_mcmc"
 ]
