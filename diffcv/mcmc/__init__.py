@@ -1,10 +1,10 @@
-from .langevin import ULA
-from .pyro import HMC
+from .langevin import ULASampler
+from .pyro import HMCSampler
 from .estimator import estimate_mcmc, estimate_n_mcmc
 
 __all__ = [
-    "ULA",
-    "HMC",
+    "ULASampler",
+    "HMCSampler",
     "estimate_mcmc",
     "estimate_n_mcmc"
 ]
