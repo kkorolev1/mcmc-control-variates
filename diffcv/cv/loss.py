@@ -15,14 +15,15 @@ def l2_reg(model: eqx.Module, alpha=0.1):
 
 
 class CVLoss:
-    def __init__(self,  fn: tp.Callable, l2_alpha: float = 0.0):
+    def __init__(self, fn: tp.Callable, fn_mean: float, l2_alpha: float = 0.0):
         self.fn = fn
         self.l2_alpha = l2_alpha
+        self.fn_mean = fn_mean
     
     def __call__(self, model: eqx.Module, data: jnp.ndarray, batch_index: jnp.ndarray, key: jax.random.PRNGKey):
         g_vals = jax.vmap(model)(data)
         f_vals = jax.vmap(self.fn)(data)
-        f_wave = f_vals - f_vals.mean()
+        f_wave = f_vals - self.fn_mean
         grad_g = jax.vmap(jax.jacfwd(model))(data)
         loss = -2 * g_vals * f_wave + (grad_g ** 2).sum(axis=-1)
         return loss.mean() + l2_reg(model, alpha=self.l2_alpha)
