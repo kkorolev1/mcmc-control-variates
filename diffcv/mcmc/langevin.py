@@ -33,7 +33,7 @@ class ULASampler(Sampler):
             z = random.normal(key, shape=x.shape)
             new_x = prev_x + self.gamma * jax.vmap(self.grad_log_prob)(prev_x) + jnp.sqrt(2 * self.gamma) * z
             return new_x, prev_x
-        keys = random.split(key, self.n_samples)
+        keys = random.split(key, self.n_samples + self.burnin_steps)
         final_xs, xs = jax.lax.scan(langevin_step, init=x, xs=keys)
         xs = jnp.vstack(xs)
         return final_xs, xs[self.burnin_steps:]

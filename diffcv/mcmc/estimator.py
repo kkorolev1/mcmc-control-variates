@@ -17,7 +17,8 @@ class Estimator:
             keys = tqdm(keys)
         estimates = []
         for exp_key in keys:
-            samples = self.sampler(exp_key, n_chains=n_chains).squeeze(0)
+            samples = self.sampler(exp_key, n_chains=n_chains)
+            samples = samples.reshape(-1, samples.shape[-1])
             estimates.append(jax.vmap(self.fn)(samples).mean())
         estimates = jnp.stack(estimates)
         return estimates

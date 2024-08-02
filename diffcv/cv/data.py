@@ -7,7 +7,8 @@ from diffcv.utils import inf_loop
 
 
 def get_data_from_sampler(batch_size: int, sampler: eqx.Module, key: jax.random.PRNGKey, n_chains: int):
-    training_samples = sampler(key, n_chains=n_chains).squeeze(axis=0)
+    training_samples = sampler(key, n_chains=n_chains)
+    training_samples = training_samples.reshape(-1, training_samples.shape[-1])
     dataset = jdl.ArrayDataset(training_samples)
     dataloader = jdl.DataLoader(
         dataset,
