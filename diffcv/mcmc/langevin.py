@@ -7,9 +7,7 @@ import typing as tp
 from .base import Sampler
 
 
-class ULASampler(Sampler):  
-    
-      
+class ULASampler(Sampler):
     def __init__(self, grad_log_prob: tp.Callable, dim: int, gamma: float = 5e-3, n_samples: int = 1000, burnin_steps: int = 0, init_std: float = 1.0):
         super().__init__(dim=dim, n_samples=n_samples, burnin_steps=burnin_steps, init_std=init_std)
         self.grad_log_prob = grad_log_prob

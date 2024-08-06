@@ -33,7 +33,8 @@ class CVTrainer:
             model = eqx.apply_updates(model, updates)
             return model, opt_state, loss_score
         
-        for batch_index, batch in enumerate(tqdm(self.dataloader, total=self.n_steps)):
+        pbar = tqdm(self.dataloader, total=self.n_steps)
+        for batch_index, batch in enumerate(pbar):
             if batch_index >= self.n_steps:
                 break
             batch = batch[0] # dataloader returns tuple of size (1,)
@@ -42,4 +43,5 @@ class CVTrainer:
             if batch_index % self.log_every_n_steps == 0:
                 self.logger.add_scalar("loss", loss_score.item())
                 self.logger.add_scalar("learning_rate", opt_state.hyperparams["learning_rate"].item())
+                pbar.set_description(f"Loss: {loss_score.item(): .3f}")
         return model

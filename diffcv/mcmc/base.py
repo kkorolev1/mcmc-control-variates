@@ -3,9 +3,7 @@ import jax.numpy as jnp
 from jax import random
 
 
-class Sampler:    
-    
-    
+class Sampler:
     def __init__(self, dim: int, n_samples: int = 1000, burnin_steps: int = 0, init_std: float = 1.0):
         self.dim = dim
         self.n_samples = n_samples

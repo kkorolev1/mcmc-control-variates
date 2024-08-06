@@ -1,11 +1,11 @@
-import jax.numpy as np
+import jax.numpy as jnp
 from itertools import repeat
 import pandas as pd
 
 
 def fill_diagonal(a, val):
   assert a.ndim >= 2
-  i, j = np.diag_indices(min(a.shape[-2:]))
+  i, j = jnp.diag_indices(min(a.shape[-2:]))
   return a.at[..., i, j].set(val)
 
 
@@ -37,3 +37,7 @@ class MetricTracker:
 
     def keys(self):
         return self._data.total.keys()
+    
+    
+def moving_average(x, w):
+    return jnp.convolve(x, jnp.ones(w), 'valid') / w
