@@ -16,18 +16,18 @@ def l2_reg(model: eqx.Module, alpha=0.1):
     return alpha * sum([(w ** 2).sum() for w in jax.tree.leaves(eqx.filter(model, eqx.is_array)) if w.ndim > 1])
 
 
-class CVLoss:
+class DiffusionLoss:
     def __init__(self, fn: tp.Callable, l2_alpha: float = 0.0):
         self.fn = fn
         self.l2_alpha = l2_alpha
     
-    def __call__(self, model: eqx.Module, data: jnp.ndarray, batch_index: jnp.ndarray, key: jax.random.PRNGKey):
+    def __call__(self, model: eqx.Module, data: jnp.ndarray, key: jax.random.PRNGKey, fn_mean: jnp.ndarray):
         g_vals = jax.vmap(model)(data)
         f_vals = jax.vmap(self.fn)(data)
-        f_wave = f_vals - f_vals.mean(axis=-1)
+        f_wave = f_vals - fn_mean
         grad_g = jax.vmap(jax.jacfwd(model))(data)
         loss = -2 * g_vals * f_wave + (grad_g ** 2).sum(axis=-1)
-        return loss.mean() + l2_reg(model, alpha=self.l2_alpha)
+        return loss.mean() #+ l2_reg(model, alpha=self.l2_alpha)
 
 
 class VarLoss:
@@ -36,7 +36,7 @@ class VarLoss:
         self.grad_log_prob = grad_log_prob
         self.generator_cls = generator_cls
     
-    def __call__(self, model: eqx.Module, data: jnp.ndarray, batch_index: jnp.ndarray, key: jax.random.PRNGKey):
+    def __call__(self, model: eqx.Module, data: jnp.ndarray, key: jax.random.PRNGKey):
         generator = self.generator_cls(self.grad_log_prob, model)
         batch_size = data.shape[0]
         residual = jax.vmap(self.fn)(data) + jax.vmap(generator)(data) - model.c
@@ -50,50 +50,8 @@ class DiffLoss:
         self.noise_std = noise_std
         self.generator_cls = generator_cls
     
-    def __call__(self, model: eqx.Module, data: jnp.ndarray, batch_index: jnp.ndarray, key: jax.random.PRNGKey):
-        generator = self.generator_cls(self.grad_log_prob, model)     
+    def __call__(self, model: eqx.Module, data: jnp.ndarray, key: jax.random.PRNGKey):
+        generator = self.generator_cls(self.grad_log_prob, model)
         noise = self.noise_std * jax.random.normal(key, shape=data.shape)
         perturbed_data = data + noise
         return l2_loss(jax.vmap(self.fn)(perturbed_data) + jax.vmap(generator)(perturbed_data), jax.vmap(self.fn)(data) + jax.vmap(generator)(data))
-
-
-class CVALSLoss:    
-    def __init__(self, fn: tp.Callable, grad_log_prob: tp.Callable,
-                 noise_std: float = 1.0, switch_steps: int = 100,
-                 l2_alpha: float = 0.0, generator_cls = ScalarGenerator):
-        self.fn = fn
-        self.grad_log_prob = grad_log_prob
-        self.noise_std = noise_std
-        self.switch_steps = switch_steps
-        self.l2_alpha = l2_alpha
-        self.generator_cls = generator_cls
-    
-    @staticmethod
-    def diff_loss(inputs):
-        data, generator, fn, key, noise_std = inputs
-        noise = noise_std * jax.random.normal(key, shape=data.shape)
-        perturbed_data = data + noise
-        return l2_loss(jax.vmap(fn)(perturbed_data) + jax.vmap(generator)(perturbed_data), jax.vmap(fn)(data) + jax.vmap(generator)(data))
-
-    @staticmethod
-    def cv_loss(inputs):
-        model, data, generator, fn, l2_alpha = inputs
-        g_vals = jax.vmap(model)(data)
-        f_vals = jax.vmap(fn)(data)
-        f_wave = f_vals - (f_vals + jax.vmap(generator)(jax.lax.stop_gradient(data))).mean(axis=-1)
-        grad_g = jax.vmap(jax.jacfwd(model))(data)
-        loss = -2 * g_vals * f_wave + (grad_g ** 2).sum(axis=-1)
-        
-        return loss.mean() + l2_reg(model, alpha=l2_alpha)
-    
-    def __call__(self, model: eqx.Module, data: jnp.ndarray, batch_index: jnp.ndarray, key: jax.random.PRNGKey):
-        generator = self.generator_cls(self.grad_log_prob, model)
-        condition = (batch_index // self.switch_steps) % 2 == 1
-        
-        loss_value = jax.lax.cond(
-            jnp.all(condition),
-            lambda: CVALSLoss.cv_loss((model, data, generator, self.fn, self.l2_alpha)),
-            lambda: CVALSLoss.diff_loss((data, generator, self.fn, key, self.noise_std)),
-        )
-        
-        return loss_value

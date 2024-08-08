@@ -22,3 +22,11 @@ class Estimator:
             estimates.append(jax.vmap(self.fn)(samples).mean())
         estimates = jnp.stack(estimates)
         return estimates
+    
+    @staticmethod
+    def bias(true_pi, estimates):
+        return true_pi - estimates.mean()
+    
+    @staticmethod
+    def std(estimates):
+        return estimates.std()
