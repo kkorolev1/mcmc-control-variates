@@ -120,8 +120,8 @@ class CVALSTrainer:
             batch = batch[0] # dataloader returns tuple of size (1,)
             
             if (batch_index // self.switch_steps) % 2 == 0:
-                model, opt_stein_state, loss_score = step_stein(model, batch, opt_stein_state, key)
                 self.logger.set_step(stein_steps)
+                model, opt_stein_state, loss_score = step_stein(model, batch, opt_stein_state, key)
                 
                 if batch_index % self.log_every_n_steps == 0:
                     self.logger.add_scalar("loss_stein", loss_score.item())
@@ -131,6 +131,8 @@ class CVALSTrainer:
                 stein_steps += 1
                 sample_mean_recalculated = False
             else:
+                self.logger.set_step(diffusion_steps)
+                
                 if not sample_mean_recalculated:
                     generator = ScalarGenerator(self.grad_log_prob, model)
                     fn_mean = 0.0
@@ -144,7 +146,6 @@ class CVALSTrainer:
                     sample_mean_recalculated = True
                     self.logger.add_scalar("fn_mean", fn_mean.item())
                 model, opt_diffusion_state, loss_score = step_diffusion(model, batch, opt_diffusion_state, key, fn_mean)
-                self.logger.set_step(diffusion_steps)
                 
                 if batch_index % self.log_every_n_steps == 0:
                     self.logger.add_scalar("loss_diffusion", loss_score.item())
