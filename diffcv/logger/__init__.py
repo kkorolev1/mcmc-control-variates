@@ -1,5 +1,6 @@
-from .logger import Logger
+from .logger import Logger, plot_log_results
 
 __all__ = [
-    "Logger"
+    "Logger", 
+    "plot_log_results"
 ]

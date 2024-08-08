@@ -9,12 +9,15 @@ from tqdm.auto import tqdm
 from diffcv.cv.generator import ScalarGenerator
 from diffcv.cv.loss import DiffusionLoss
 from diffcv.logger import Logger
+from diffcv.utils import inf_loop
 
 
 class CVTrainer:
-    def __init__(self, model: eqx.Module, dataloader: jdl.DataLoader, optimizer: optax.GradientTransformation, 
-                 loss: tp.Callable, logger: Logger, n_steps: int = 1000, log_every_n_steps: int = 100):
+    def __init__(self, model: eqx.Module, fn: tp.Callable, 
+                 dataloader: jdl.DataLoader, optimizer: optax.GradientTransformation, 
+                 loss: tp.Callable, logger: Logger, n_steps: int = 1000, log_every_n_steps: int = 100, fn_mean: float | None = None):
         self.model = model
+        self.fn = fn
         self.dataloader = dataloader
         self.optimizer = optimizer
         self.loss = loss
@@ -23,7 +26,7 @@ class CVTrainer:
         self.n_steps = n_steps
         self.log_every_n_steps = log_every_n_steps
         
-        self.requires_fn_mean = isinstance(loss, DiffusionLoss)
+        self.fn_mean = fn_mean
 
     def train(self, key: jax.random.PRNGKey):
         model = self.model
@@ -44,17 +47,16 @@ class CVTrainer:
             updates, opt_state = self.optimizer.update(grads, opt_state)
             model = eqx.apply_updates(model, updates)
             return model, opt_state, loss_score
-        
 
-        pbar = tqdm(self.dataloader, total=self.n_steps)
+
+        pbar = tqdm(inf_loop(self.dataloader), total=self.n_steps)
         for batch_index, batch in enumerate(pbar):
             if batch_index >= self.n_steps:
                 break
             batch = batch[0] # dataloader returns tuple of size (1,)
             self.logger.set_step(batch_index)
-            if self.requires_fn_mean:
-                fn_mean = jax.vmap(self.loss.fn)(batch).mean(axis=-1)
-                model, opt_state, loss_score = step_with_fn(model, batch, opt_state, key, fn_mean)
+            if self.fn_mean is not None:
+                model, opt_state, loss_score = step_with_fn(model, batch, opt_state, key, self.fn_mean)
             else:
                 model, opt_state, loss_score = step(model, batch, opt_state, key)
             if batch_index % self.log_every_n_steps == 0:
@@ -69,7 +71,8 @@ class CVALSTrainer:
     def __init__(self, model: eqx.Module, fn: tp.Callable, grad_log_prob: tp.Callable, dataloader: jdl.DataLoader, 
                  optimizer_diffusion: optax.GradientTransformation, optimizer_stein: optax.GradientTransformation, 
                  loss_diffusion: tp.Callable, loss_stein: tp.Callable, 
-                 logger: Logger, switch_steps: int = 1000, n_steps: int = 1000, log_every_n_steps: int = 100):
+                 logger: Logger, switch_steps: int = 1000, n_steps: int = 1000, log_every_n_steps: int = 100,
+                 n_steps_for_mean_recalculation: int = 1000):
         self.model = model
         self.fn = fn
         self.grad_log_prob = grad_log_prob
@@ -83,6 +86,7 @@ class CVALSTrainer:
         self.switch_steps = switch_steps
         self.n_steps = n_steps
         self.log_every_n_steps = log_every_n_steps
+        self.n_steps_for_mean_recalculation = n_steps_for_mean_recalculation
         
 
     def train(self, key: jax.random.PRNGKey):
@@ -106,8 +110,10 @@ class CVALSTrainer:
             model = eqx.apply_updates(model, updates)
             return model, opt_state, loss_score        
         
-        pbar = tqdm(self.dataloader, total=self.n_steps)
+        pbar = tqdm(inf_loop(self.dataloader), total=self.n_steps)
         diffusion_steps, stein_steps = 0, 0
+        sample_mean_recalculated = False
+
         for batch_index, batch in enumerate(pbar):
             if batch_index >= self.n_steps:
                 break
@@ -123,10 +129,20 @@ class CVALSTrainer:
                     pbar.set_description(f"loss_stein: {loss_score.item(): .3f}")
                     
                 stein_steps += 1
+                sample_mean_recalculated = False
             else:
-                generator = ScalarGenerator(self.grad_log_prob, model)
-                data = jax.lax.stop_gradient(batch)
-                fn_mean = (jax.vmap(self.fn)(data) + jax.vmap(generator)(data)).mean(axis=-1)
+                if not sample_mean_recalculated:
+                    generator = ScalarGenerator(self.grad_log_prob, model)
+                    fn_mean = 0.0
+                    for i, data in enumerate(inf_loop(self.dataloader)):
+                        if i >= self.n_steps_for_mean_recalculation:
+                            break
+                        data = jax.lax.stop_gradient(data[0])
+                        fn_mean += (jax.vmap(self.fn)(data) + jax.vmap(generator)(data)).sum(axis=-1)
+                    fn_mean /= (batch.shape[0] * self.n_steps_for_mean_recalculation)
+                    
+                    sample_mean_recalculated = True
+                    self.logger.add_scalar("fn_mean", fn_mean.item())
                 model, opt_diffusion_state, loss_score = step_diffusion(model, batch, opt_diffusion_state, key, fn_mean)
                 self.logger.set_step(diffusion_steps)
                 
