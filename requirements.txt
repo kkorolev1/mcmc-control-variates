@@ -1,0 +1,13 @@
+jax[cuda12]
+optax
+pandas 
+scikit-learn
+matplotlib 
+seaborn
+jax-dataloader
+numpyro
+numpy 
+equinox 
+tqdm
+ipykernel
+ipywidgets
