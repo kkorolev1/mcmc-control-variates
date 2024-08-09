@@ -7,38 +7,114 @@ import typing as tp
 from .base import Sampler
 
 
-class ULASampler(Sampler):
-    def __init__(self, grad_log_prob: tp.Callable, dim: int, gamma: float = 5e-3, n_samples: int = 1000, burnin_steps: int = 0, init_std: float = 1.0):
-        super().__init__(dim=dim, n_samples=n_samples, burnin_steps=burnin_steps, init_std=init_std)
-        self.grad_log_prob = grad_log_prob
+class LangevinSampler(Sampler):
+    def __init__(
+        self,
+        log_prob: tp.Callable,
+        dim: int,
+        gamma: float = 5e-3,
+        n_samples: int = 1000,
+        burnin_steps: int = 0,
+        init_std: float = 1.0,
+        step: str = "ula",
+    ):
+        super().__init__(
+            dim=dim, n_samples=n_samples, burnin_steps=burnin_steps, init_std=init_std
+        )
+        self.log_prob = log_prob
+        self.grad_log_prob = jax.jit(jax.grad(log_prob))
         self.gamma = gamma
-        
-    
+        self.step = step
+
     @eqx.filter_jit
     def sample_chain(self, x, key: random.PRNGKey):
-        """
-        Args:
-            x (jax.ndarray): Data of shape (batch, ...)
-            key (random.PRNGKey): PRNGKey for random draws
-        """
-        def langevin_step(prev_x, key: random.PRNGKey):
-            """Scannable langevin dynamics step.
-
-            Args:
-                prev_x (jax.ndarray): Previous value of x in langevin dynamics step
-                key (random.PRNGKey): PRNGKey for random draws
-            """
+        def ula_step(prev_x, key: random.PRNGKey):
             z = random.normal(key, shape=x.shape)
-            new_x = prev_x + self.gamma * jax.vmap(self.grad_log_prob)(prev_x) + jnp.sqrt(2 * self.gamma) * z
+            new_x = (
+                prev_x
+                + self.gamma * self.grad_log_prob(prev_x)
+                + jnp.sqrt(2 * self.gamma) * z
+            )
             return new_x, prev_x
+
+        def mala_step(prev_x, key: random.PRNGKey):
+            step_key, proposal_key = jax.random.split(key, 2)
+            new_x, _ = ula_step(prev_x, step_key)
+            log_pi_diff = self.log_prob(new_x) - self.log_prob(prev_x)
+            log_new_prev = (
+                (new_x - prev_x - self.gamma * self.grad_log_prob(prev_x)) ** 2
+            ).sum()
+            log_prev_new = (
+                (prev_x - new_x - self.gamma * self.grad_log_prob(new_x)) ** 2
+            ).sum()
+            p = jnp.exp(log_pi_diff + (-log_prev_new + log_new_prev) / (4 * self.gamma))
+            u = jax.random.uniform(proposal_key)
+            return jax.lax.cond(
+                u <= p,
+                lambda new_x, prev_x: (new_x, prev_x),
+                lambda _, prev_x: (prev_x, prev_x),
+                new_x,
+                prev_x,
+            )
+
         keys = random.split(key, self.n_samples + self.burnin_steps)
-        final_xs, xs = jax.lax.scan(langevin_step, init=x, xs=keys)
+        if self.step == "ula":
+            step_fn = ula_step
+        elif self.step == "mala":
+            step_fn = mala_step
+        else:
+            raise NotImplementedError(f"Unknown step function {self.step}")
+        final_xs, xs = jax.lax.scan(step_fn, init=x, xs=keys)
         xs = jnp.vstack(xs)
-        return final_xs, xs[self.burnin_steps:]
+        return final_xs, xs[self.burnin_steps :]
 
     @eqx.filter_jit
     def __call__(self, key: jax.random.PRNGKey, n_chains: int = 1):
-        starter_points = jax.random.normal(key, shape=(n_chains, 1, self.dim)) * self.init_std
+        starter_points = (
+            jax.random.normal(key, shape=(n_chains, self.dim)) * self.init_std
+        )
         starter_keys = jax.random.split(key, n_chains)
         _, samples = jax.vmap(self.sample_chain)(starter_points, starter_keys)
         return samples
+
+
+class ULASampler(LangevinSampler):
+    def __init__(
+        self,
+        log_prob: tp.Callable,
+        dim: int,
+        gamma: float = 5e-3,
+        n_samples: int = 1000,
+        burnin_steps: int = 0,
+        init_std: float = 1.0,
+    ):
+        super().__init__(
+            log_prob=log_prob,
+            dim=dim,
+            gamma=gamma,
+            n_samples=n_samples,
+            burnin_steps=burnin_steps,
+            init_std=init_std,
+            step="ula",
+        )
+
+
+class MALASampler(LangevinSampler):
+    def __init__(
+        self,
+        log_prob: tp.Callable,
+        dim: int,
+        gamma: float = 5e-3,
+        n_samples: int = 1000,
+        burnin_steps: int = 0,
+        init_std: float = 1.0,
+    ):
+        super().__init__(
+            log_prob=log_prob,
+            dim=dim,
+            gamma=gamma,
+            n_samples=n_samples,
+            burnin_steps=burnin_steps,
+            init_std=init_std,
+            step="mala",
+        )

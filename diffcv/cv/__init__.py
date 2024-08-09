@@ -14,5 +14,5 @@ __all__ = [
     "VarLoss",
     "CVTrainer",
     "CVALSTrainer",
-    "get_data_from_sampler"
+    "get_data_from_sampler",
 ]

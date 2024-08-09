@@ -12,21 +12,41 @@ def identity(x):
 
 
 def normal_init(weight: jax.Array, key: jax.random.PRNGKey) -> jax.Array:
-  return jax.random.normal(key, shape=weight.shape)
+    return jax.random.normal(key, shape=weight.shape)
 
 
-def init_params(model: eqx.Module, get_params: tp.Callable, init_fn: tp.Callable, key: jax.random.PRNGKey):
+def init_params(
+    model: eqx.Module,
+    get_params: tp.Callable,
+    init_fn: tp.Callable,
+    key: jax.random.PRNGKey,
+):
     params = get_params(model)
-    new_params = [init_fn(param, subkey) for param, subkey in
-                  zip(params, jax.random.split(key, len(params)))]
+    new_params = [
+        init_fn(param, subkey)
+        for param, subkey in zip(params, jax.random.split(key, len(params)))
+    ]
     new_model = eqx.tree_at(get_params, model, new_params)
     return new_model
 
 
-def init_linear(model: eqx.Module, key: jax.random.PRNGKey, init_weights_fn: tp.Callable, init_biases_fn: tp.Callable = None):
+def init_linear(
+    model: eqx.Module,
+    key: jax.random.PRNGKey,
+    init_weights_fn: tp.Callable,
+    init_biases_fn: tp.Callable = None,
+):
     is_linear = lambda x: isinstance(x, eqx.nn.Linear)
-    get_weights = lambda m: [x.weight for x in jax.tree_util.tree_leaves(m, is_leaf=is_linear) if is_linear(x)]
-    get_biases = lambda m: [x.bias for x in jax.tree_util.tree_leaves(m, is_leaf=is_linear) if is_linear(x) and hasattr(x, "bias")]
+    get_weights = lambda m: [
+        x.weight
+        for x in jax.tree_util.tree_leaves(m, is_leaf=is_linear)
+        if is_linear(x)
+    ]
+    get_biases = lambda m: [
+        x.bias
+        for x in jax.tree_util.tree_leaves(m, is_leaf=is_linear)
+        if is_linear(x) and hasattr(x, "bias")
+    ]
     wkey, bkey = jax.random.split(key, 2)
     new_model = init_params(model, get_weights, init_weights_fn, wkey)
     if init_biases_fn is None:
@@ -53,11 +73,17 @@ class CVMLP(eqx.Module):
     ):
         super().__init__()
         self.mlp = eqx.nn.MLP(
-            in_size=in_size, out_size=out_size, width_size=width_size,
-            depth=depth, activation=activation, final_activation=final_activation,
-            use_bias=use_bias, use_final_bias=use_final_bias, key=key
+            in_size=in_size,
+            out_size=out_size,
+            width_size=width_size,
+            depth=depth,
+            activation=activation,
+            final_activation=final_activation,
+            use_bias=use_bias,
+            use_final_bias=use_final_bias,
+            key=key,
         )
-        
+
     @eqx.filter_jit
     def __call__(self, x):
         """Forward pass.
@@ -77,5 +103,11 @@ class CVLinear(CVMLP):
         *,
         key: random.PRNGKey,
     ):
-        super().__init__(in_size=in_size, out_size=out_size, width_size=0, depth=0, key=key, use_final_bias=use_bias)
-
+        super().__init__(
+            in_size=in_size,
+            out_size=out_size,
+            width_size=0,
+            depth=0,
+            key=key,
+            use_final_bias=use_bias,
+        )

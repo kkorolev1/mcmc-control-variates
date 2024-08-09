@@ -4,9 +4,9 @@ import pandas as pd
 
 
 def fill_diagonal(a, val):
-  assert a.ndim >= 2
-  i, j = jnp.diag_indices(min(a.shape[-2:]))
-  return a.at[..., i, j].set(val)
+    assert a.ndim >= 2
+    i, j = jnp.diag_indices(min(a.shape[-2:]))
+    return a.at[..., i, j].set(val)
 
 
 def inf_loop(data_loader):
@@ -23,12 +23,12 @@ class MetricTracker:
     def reset(self):
         for col in self._data.columns:
             self._data[col].values[:] = 0
-    
+
     def update(self, key, value, n=1):
         self._data.total[key] += value * n
         self._data.counts[key] += n
         self._data.average[key] = self._data.total[key] / self._data.counts[key]
-    
+
     def avg(self, key):
         return self._data.average[key]
 
@@ -37,7 +37,7 @@ class MetricTracker:
 
     def keys(self):
         return self._data.total.keys()
-    
-    
+
+
 def moving_average(x, w):
-    return jnp.convolve(x, jnp.ones(w), 'valid') / w
+    return jnp.convolve(x, jnp.ones(w), "valid") / w
