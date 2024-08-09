@@ -11,6 +11,12 @@ from diffcv.logger import Logger
 from diffcv.utils import inf_loop
 
 
+def calculate_grad_norm(grads):
+    flat_grads = jax.tree_util.tree_leaves(grads)
+    grad_norm = jnp.sqrt(sum(jnp.sum(g**2) for g in flat_grads))
+    return grad_norm.item()
+
+
 class CVTrainer:
     def __init__(
         self,
@@ -46,14 +52,14 @@ class CVTrainer:
             loss_score, grads = loss(model, data, key)
             updates, opt_state = self.optimizer.update(grads, opt_state)
             model = eqx.apply_updates(model, updates)
-            return model, opt_state, loss_score
+            return model, opt_state, loss_score, grads
 
         @eqx.filter_jit
         def step_with_fn(model, data, opt_state, key, fn_mean):
             loss_score, grads = loss(model, data, key, fn_mean)
             updates, opt_state = self.optimizer.update(grads, opt_state)
             model = eqx.apply_updates(model, updates)
-            return model, opt_state, loss_score
+            return model, opt_state, loss_score, grads
 
         pbar = tqdm(inf_loop(self.dataloader), total=self.n_steps)
         for batch_index, batch in enumerate(pbar):
@@ -66,8 +72,9 @@ class CVTrainer:
                     model, batch, opt_state, key, self.fn_mean
                 )
             else:
-                model, opt_state, loss_score = step(model, batch, opt_state, key)
+                model, opt_state, loss_score, grads = step(model, batch, opt_state, key)
             if batch_index % self.log_every_n_steps == 0:
+                self.logger.add_scalar("grad_norm", calculate_grad_norm(grads))
                 self.logger.add_scalar("loss", loss_score.item())
                 self.logger.add_scalar(
                     "learning_rate", opt_state.hyperparams["learning_rate"].item()
@@ -122,14 +129,14 @@ class CVALSTrainer:
             loss_score, grads = loss_diffusion(model, data, key, fn_mean)
             updates, opt_state = self.optimizer_diffusion.update(grads, opt_state)
             model = eqx.apply_updates(model, updates)
-            return model, opt_state, loss_score
+            return model, opt_state, loss_score, grads
 
         @eqx.filter_jit
         def step_stein(model, data, opt_state, key):
             loss_score, grads = loss_stein(model, data, key)
             updates, opt_state = self.optimizer_stein.update(grads, opt_state)
             model = eqx.apply_updates(model, updates)
-            return model, opt_state, loss_score
+            return model, opt_state, loss_score, grads
 
         pbar = tqdm(inf_loop(self.dataloader), total=self.n_steps)
         diffusion_steps, stein_steps = 0, 0
@@ -142,12 +149,13 @@ class CVALSTrainer:
 
             if (batch_index // self.switch_steps) % 2 == 0:
                 self.logger.set_step(stein_steps)
-                model, opt_stein_state, loss_score = step_stein(
+                model, opt_stein_state, loss_score, grads = step_stein(
                     model, batch, opt_stein_state, key
                 )
 
                 if batch_index % self.log_every_n_steps == 0:
                     self.logger.add_scalar("loss_stein", loss_score.item())
+                    self.logger.add_scalar("grad_norm", calculate_grad_norm(grads))
                     self.logger.add_scalar(
                         "learning_rate_stein",
                         opt_stein_state.hyperparams["learning_rate"].item(),
@@ -173,12 +181,13 @@ class CVALSTrainer:
 
                     sample_mean_recalculated = True
                     self.logger.add_scalar("fn_mean", fn_mean.item())
-                model, opt_diffusion_state, loss_score = step_diffusion(
+                model, opt_diffusion_state, loss_score, grads = step_diffusion(
                     model, batch, opt_diffusion_state, key, fn_mean
                 )
 
                 if batch_index % self.log_every_n_steps == 0:
                     self.logger.add_scalar("loss_diffusion", loss_score.item())
+                    self.logger.add_scalar("grad_norm", calculate_grad_norm(grads))
                     self.logger.add_scalar(
                         "learning_rate_diffusion",
                         opt_diffusion_state.hyperparams["learning_rate"].item(),
