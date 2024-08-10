@@ -124,14 +124,14 @@ class CVTrainer(BaseTrainer):
 
         @eqx.filter_jit
         def step(model, data, opt_state, key):
-            loss_score, grads = loss(model, data, key)
+            loss_score, grads = loss(model=model, data=data, key=key)
             updates, opt_state = self.optimizer.update(grads, opt_state)
             model = eqx.apply_updates(model, updates)
             return model, opt_state, loss_score, grads
 
         @eqx.filter_jit
         def step_with_fn_mean(model, data, opt_state, key, fn_mean):
-            loss_score, grads = loss(model, data, key, fn_mean)
+            loss_score, grads = loss(model=model, data=data, key=key, fn_mean=fn_mean)
             updates, opt_state = self.optimizer.update(grads, opt_state)
             model = eqx.apply_updates(model, updates)
             return model, opt_state, loss_score, grads
@@ -212,7 +212,10 @@ class CVALSTrainer(BaseTrainer):
         self.switch_steps = switch_steps
         self.early_stopping_diffusion = EarlyStopping(patience)
         self.early_stopping_stein = EarlyStopping(patience)
-        self.train_metrics = MetricTracker("loss_diffusion", "loss_stein", "grad_norm")
+        self.train_metrics_diffusion = MetricTracker(
+            "loss_diffusion", "grad_norm_diffusion"
+        )
+        self.train_metrics_stein = MetricTracker("loss_stein", "grad_norm_stein")
         self.evaluation_metrics = MetricTracker("fn_mean")
 
     def train(self, key: jax.random.PRNGKey):
@@ -226,14 +229,16 @@ class CVALSTrainer(BaseTrainer):
 
         @eqx.filter_jit
         def step_diffusion(model, data, opt_state, key, fn_mean):
-            loss_score, grads = loss_diffusion(model, data, key, fn_mean)
+            loss_score, grads = loss_diffusion(
+                model=model, data=data, key=key, fn_mean=fn_mean
+            )
             updates, opt_state = self.optimizer_diffusion.update(grads, opt_state)
             model = eqx.apply_updates(model, updates)
             return model, opt_state, loss_score, grads
 
         @eqx.filter_jit
         def step_stein(model, data, opt_state, key):
-            loss_score, grads = loss_stein(model, data, key)
+            loss_score, grads = loss_stein(model=model, data=data, key=key)
             updates, opt_state = self.optimizer_stein.update(grads, opt_state)
             model = eqx.apply_updates(model, updates)
             return model, opt_state, loss_score, grads
@@ -253,7 +258,10 @@ class CVALSTrainer(BaseTrainer):
                     model, batch, opt_stein_state, key
                 )
 
-                self.train_metrics.update("loss_stein", loss_score.item())
+                self.train_metrics_stein.update("loss_stein", loss_score.item())
+                self.train_metrics_stein.update(
+                    "grad_norm_stein", calculate_grad_norm(grads)
+                )
                 stein_steps += 1
                 fn_mean_recalculated = False
             else:
@@ -269,22 +277,24 @@ class CVALSTrainer(BaseTrainer):
                     model, batch, opt_diffusion_state, key, fn_mean
                 )
 
-                self.train_metrics.update("loss_diffusion", loss_score.item())
+                self.train_metrics_diffusion.update("loss_diffusion", loss_score.item())
+                self.train_metrics_diffusion.update(
+                    "grad_norm_diffusion", calculate_grad_norm(grads)
+                )
                 diffusion_steps += 1
 
-            self.train_metrics.update("grad_norm", calculate_grad_norm(grads))
-
             if batch_index % self.log_every_n_steps == 0:
-                self._log_scalars(self.train_metrics)
-                self.train_metrics.reset()
-
                 if (batch_index // self.switch_steps) % 2 == 0:
+                    self._log_scalars(self.train_metrics_stein)
+                    self.train_metrics_stein.reset()
                     self.logger.add_scalar(
                         "learning_rate_stein",
                         opt_stein_state.hyperparams["learning_rate"].item(),
                     )
                     pbar.set_description(f"loss_stein: {loss_score.item(): .3f}")
                 else:
+                    self._log_scalars(self.train_metrics_diffusion)
+                    self.train_metrics_diffusion.reset()
                     self.logger.add_scalar(
                         "learning_rate_diffusion",
                         opt_diffusion_state.hyperparams["learning_rate"].item(),
@@ -292,6 +302,7 @@ class CVALSTrainer(BaseTrainer):
                     pbar.set_description(f"loss_diffusion: {loss_score.item(): .3f}")
 
             if batch_index % self.eval_every_n_steps == 0:
+                self.logger.set_step(batch_index)
                 self._evaluation(
                     model, self.dataloader, len(self.dataloader.dataloader)
                 )
