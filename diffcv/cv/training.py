@@ -17,7 +17,43 @@ def calculate_grad_norm(grads):
     return grad_norm.item()
 
 
-class CVTrainer:
+class EarlyStopping:
+    def __init__(self, patience: int, strategy: str = "min"):
+        self.patience = patience
+        self.strategy = strategy
+        self.steps_without_improvement = 0
+        self.best_value = jnp.inf if strategy == "min" else -jnp.inf
+        self.eps = 1e-6
+
+    def need_to_stop(self, value):
+        if self.strategy == "min":
+            improvement_condition = value + self.eps < self.best_value
+        else:
+            improvement_condition = value > self.best_value + self.eps
+
+        if improvement_condition:
+            self.best_value = value
+            self.steps_without_improvement = 0
+        else:
+            self.steps_without_improvement += 1
+
+        return self.steps_without_improvement >= self.patience
+
+
+class BaseTrainer:
+    def __init__(
+        self,
+        logger: Logger,
+        n_steps: int = 1000,
+        log_every_n_steps: int = 100,
+    ):
+        self.logger = logger
+
+        self.n_steps = n_steps
+        self.log_every_n_steps = log_every_n_steps
+
+
+class CVTrainer(BaseTrainer):
     def __init__(
         self,
         model: eqx.Module,
@@ -29,18 +65,20 @@ class CVTrainer:
         n_steps: int = 1000,
         log_every_n_steps: int = 100,
         fn_mean: float | None = None,
+        patience: int = 1000,
     ):
+        super().__init__(
+            logger=logger,
+            n_steps=n_steps,
+            log_every_n_steps=log_every_n_steps,
+        )
         self.model = model
         self.fn = fn
         self.dataloader = dataloader
         self.optimizer = optimizer
         self.loss = loss
-        self.logger = logger
-
-        self.n_steps = n_steps
-        self.log_every_n_steps = log_every_n_steps
-
         self.fn_mean = fn_mean
+        self.early_stopping = EarlyStopping(patience)
 
     def train(self, key: jax.random.PRNGKey):
         model = self.model
@@ -68,11 +106,12 @@ class CVTrainer:
             batch = batch[0]  # dataloader returns tuple of size (1,)
             self.logger.set_step(batch_index)
             if self.fn_mean is not None:
-                model, opt_state, loss_score = step_with_fn(
+                model, opt_state, loss_score, grads = step_with_fn(
                     model, batch, opt_state, key, self.fn_mean
                 )
             else:
                 model, opt_state, loss_score, grads = step(model, batch, opt_state, key)
+
             if batch_index % self.log_every_n_steps == 0:
                 self.logger.add_scalar("grad_norm", calculate_grad_norm(grads))
                 self.logger.add_scalar("loss", loss_score.item())
@@ -80,10 +119,17 @@ class CVTrainer:
                     "learning_rate", opt_state.hyperparams["learning_rate"].item()
                 )
                 pbar.set_description(f"loss: {loss_score.item(): .3f}")
+
+            if self.early_stopping.need_to_stop(loss_score.item()):
+                print(
+                    f"Early stopping at step {batch_index} due to no improvement in loss over {self.early_stopping.patience} steps."
+                )
+                break
+
         return model
 
 
-class CVALSTrainer:
+class CVALSTrainer(BaseTrainer):
     def __init__(
         self,
         model: eqx.Module,
@@ -96,10 +142,16 @@ class CVALSTrainer:
         loss_stein: tp.Callable,
         logger: Logger,
         switch_steps: int = 1000,
+        n_steps_for_mean_recalculation: int = 1000,
         n_steps: int = 1000,
         log_every_n_steps: int = 100,
-        n_steps_for_mean_recalculation: int = 1000,
+        patience: int = 1000,
     ):
+        super().__init__(
+            logger=logger,
+            n_steps=n_steps,
+            log_every_n_steps=log_every_n_steps,
+        )
         self.model = model
         self.fn = fn
         self.grad_log_prob = grad_log_prob
@@ -108,12 +160,10 @@ class CVALSTrainer:
         self.optimizer_stein = optimizer_stein
         self.loss_diffusion = loss_diffusion
         self.loss_stein = loss_stein
-        self.logger = logger
-
         self.switch_steps = switch_steps
-        self.n_steps = n_steps
-        self.log_every_n_steps = log_every_n_steps
         self.n_steps_for_mean_recalculation = n_steps_for_mean_recalculation
+        self.early_stopping_diffusion = EarlyStopping(patience)
+        self.early_stopping_stein = EarlyStopping(patience)
 
     def train(self, key: jax.random.PRNGKey):
         model = self.model
@@ -195,5 +245,18 @@ class CVALSTrainer:
                     pbar.set_description(f"loss_diffusion: {loss_score.item(): .3f}")
 
                 diffusion_steps += 1
+
+            if (batch_index // self.switch_steps) % 2 == 0:
+                if self.early_stopping_stein.need_to_stop(loss_score.item()):
+                    print(
+                        f"Early stopping at step {batch_index} due to no improvement in loss over {self.early_stopping_stein.patience} steps."
+                    )
+                    break
+            else:
+                if self.early_stopping_diffusion.need_to_stop(loss_score.item()):
+                    print(
+                        f"Early stopping at step {batch_index} due to no improvement in loss over {self.early_stopping_diffusion.patience} steps."
+                    )
+                    break
 
         return model
