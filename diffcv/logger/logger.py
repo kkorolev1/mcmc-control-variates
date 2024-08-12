@@ -38,7 +38,7 @@ def plot_log_results(logger: Logger):
     nrows = math.ceil(nplots / ncols)
     # print(nrows, ncols)
 
-    fig, axes = plt.subplots(nrows, ncols, figsize=(15, 15))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(15, 5))
     if axes.ndim == 1:
         axes = axes[:, None]
 
