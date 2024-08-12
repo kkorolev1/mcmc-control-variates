@@ -38,7 +38,7 @@ def plot_log_results(logger: Logger):
     nrows = math.ceil(nplots / ncols)
     # print(nrows, ncols)
 
-    fig, axes = plt.subplots(nrows, ncols)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(15, 15))
     if axes.ndim == 1:
         axes = axes[:, None]
 
@@ -46,6 +46,8 @@ def plot_log_results(logger: Logger):
         ax = axes[i // ncols, i % ncols]
         data = log_results.iloc[:, i]
         plot = sns.lineplot(data=data, ax=ax)
+        if data.min() > 0:
+            ax.set(yscale="log")
 
     fig.tight_layout()
     fig.show()

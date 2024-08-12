@@ -90,7 +90,8 @@ class CVTrainer(BaseTrainer):
         model: eqx.Module,
         fn: tp.Callable,
         grad_log_prob: tp.Callable,
-        dataloader: jdl.DataLoader,
+        train_dataloader: jdl.DataLoader,
+        eval_dataloader: jdl.DataLoader,
         optimizer: optax.GradientTransformation,
         loss: tp.Callable,
         logger: Logger,
@@ -109,7 +110,8 @@ class CVTrainer(BaseTrainer):
             log_every_n_steps=log_every_n_steps,
         )
         self.model = model
-        self.dataloader = dataloader
+        self.train_dataloader = train_dataloader
+        self.eval_dataloader = eval_dataloader
         self.optimizer = optimizer
         self.loss = loss
         self.fn_mean = fn_mean
@@ -136,7 +138,7 @@ class CVTrainer(BaseTrainer):
             model = eqx.apply_updates(model, updates)
             return model, opt_state, loss_score, grads
 
-        pbar = tqdm(inf_loop(self.dataloader), total=self.n_steps)
+        pbar = tqdm(inf_loop(self.train_dataloader), total=self.n_steps)
         for batch_index, batch in enumerate(pbar):
             if batch_index >= self.n_steps:
                 break
@@ -162,7 +164,7 @@ class CVTrainer(BaseTrainer):
 
             if batch_index % self.eval_every_n_steps == 0:
                 self._evaluation(
-                    model, self.dataloader, len(self.dataloader.dataloader)
+                    model, self.eval_dataloader, len(self.eval_dataloader.dataloader)
                 )
                 pbar.set_postfix(
                     {"fn_mean": f'{self.evaluation_metrics.avg("fn_mean"): .3f}'}
@@ -183,7 +185,8 @@ class CVALSTrainer(BaseTrainer):
         model: eqx.Module,
         fn: tp.Callable,
         grad_log_prob: tp.Callable,
-        dataloader: jdl.DataLoader,
+        train_dataloader: jdl.DataLoader,
+        eval_dataloader: jdl.DataLoader,
         optimizer_diffusion: optax.GradientTransformation,
         optimizer_stein: optax.GradientTransformation,
         loss_diffusion: tp.Callable,
@@ -204,7 +207,8 @@ class CVALSTrainer(BaseTrainer):
             log_every_n_steps=log_every_n_steps,
         )
         self.model = model
-        self.dataloader = dataloader
+        self.train_dataloader = train_dataloader
+        self.eval_dataloader = eval_dataloader
         self.optimizer_diffusion = optimizer_diffusion
         self.optimizer_stein = optimizer_stein
         self.loss_diffusion = loss_diffusion
@@ -243,7 +247,7 @@ class CVALSTrainer(BaseTrainer):
             model = eqx.apply_updates(model, updates)
             return model, opt_state, loss_score, grads
 
-        pbar = tqdm(inf_loop(self.dataloader), total=self.n_steps)
+        pbar = tqdm(inf_loop(self.train_dataloader), total=self.n_steps)
         diffusion_steps, stein_steps = 0, 0
         fn_mean_recalculated = False
 
@@ -269,7 +273,11 @@ class CVALSTrainer(BaseTrainer):
 
                 if not fn_mean_recalculated:
                     fn_mean = self._calculate_fn_mean(
-                        model, self.dataloader, len(self.dataloader.dataloader)
+                        model,
+                        self.eval_dataloader,
+                        len(
+                            self.eval_dataloader.dataloader
+                        ),  # decide whether to use less/more samples
                     )
                     print(f"train fn_mean: {fn_mean.item(): .3f}")
                     fn_mean_recalculated = True
@@ -305,7 +313,7 @@ class CVALSTrainer(BaseTrainer):
             if batch_index % self.eval_every_n_steps == 0:
                 self.logger.set_step(batch_index)
                 self._evaluation(
-                    model, self.dataloader, len(self.dataloader.dataloader)
+                    model, self.eval_dataloader, len(self.eval_dataloader.dataloader)
                 )
                 pbar.set_postfix(
                     {"fn_mean": f'{self.evaluation_metrics.avg("fn_mean"): .3f}'}
@@ -314,13 +322,13 @@ class CVALSTrainer(BaseTrainer):
             if (batch_index // self.switch_steps) % 2 == 0:
                 if self.early_stopping_stein.need_to_stop(loss_score.item()):
                     print(
-                        f"Early stopping at step {batch_index} due to no improvement in loss over {self.early_stopping_stein.patience} steps."
+                        f"Early stopping at step {batch_index} due to no improvement in stein loss over {self.early_stopping_stein.patience} steps."
                     )
                     break
             else:
                 if self.early_stopping_diffusion.need_to_stop(loss_score.item()):
                     print(
-                        f"Early stopping at step {batch_index} due to no improvement in loss over {self.early_stopping_diffusion.patience} steps."
+                        f"Early stopping at step {batch_index} due to no improvement in diffusion loss over {self.early_stopping_diffusion.patience} steps."
                     )
                     break
 
