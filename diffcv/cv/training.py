@@ -271,7 +271,7 @@ class CVALSTrainer(BaseTrainer):
                     fn_mean = self._calculate_fn_mean(
                         model, self.dataloader, len(self.dataloader.dataloader)
                     )
-                    print(f"fn_mean: {fn_mean.item(): .3f}")
+                    print(f"train fn_mean: {fn_mean.item(): .3f}")
                     fn_mean_recalculated = True
 
                 model, opt_diffusion_state, loss_score, grads = step_diffusion(
