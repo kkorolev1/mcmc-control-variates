@@ -11,8 +11,18 @@ def identity(x):
     return x
 
 
-def normal_init(weight: jax.Array, key: jax.random.PRNGKey) -> jax.Array:
-    return jax.random.normal(key, shape=weight.shape)
+def xavier_uniform_init(param, key):
+    initializer = jax.nn.initializers.glorot_uniform()
+    return initializer(key, param.shape, jnp.float32)
+
+
+def he_uniform_init(param, key):
+    initializer = jax.nn.initializers.he_uniform()
+    return initializer(key, param.shape, jnp.float32)
+
+
+def zero_init(param, key):
+    return jnp.zeros_like(param)
 
 
 def init_params(

@@ -124,9 +124,12 @@ class CVTrainer(BaseTrainer):
         opt_state = self.optimizer.init(eqx.filter(model, eqx.is_array))
         loss = eqx.filter_jit(eqx.filter_value_and_grad(self.loss))
 
+        grad_clip_transform = optax.clip_by_global_norm(100)
+
         @eqx.filter_jit
         def step(model, data, opt_state, key):
             loss_score, grads = loss(model=model, data=data, key=key)
+            grads, _ = grad_clip_transform.update(grads, None)
             updates, opt_state = self.optimizer.update(grads, opt_state)
             model = eqx.apply_updates(model, updates)
             return model, opt_state, loss_score, grads
@@ -134,6 +137,7 @@ class CVTrainer(BaseTrainer):
         @eqx.filter_jit
         def step_with_fn_mean(model, data, opt_state, key, fn_mean):
             loss_score, grads = loss(model=model, data=data, key=key, fn_mean=fn_mean)
+            grads, _ = grad_clip_transform.update(grads, None)
             updates, opt_state = self.optimizer.update(grads, opt_state)
             model = eqx.apply_updates(model, updates)
             return model, opt_state, loss_score, grads
