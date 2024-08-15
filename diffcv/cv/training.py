@@ -83,6 +83,26 @@ class BaseTrainer:
         self.evaluation_metrics.update("fn_mean", fn_mean.item())
         self._log_scalars(self.evaluation_metrics)
 
+    def _step_fn(self, loss):
+        @eqx.filter_jit
+        def step(model, data, opt_state, key):
+            loss_score, grads = loss(model=model, data=data, key=key)
+            updates, opt_state = self.optimizer.update(grads, opt_state)
+            model = eqx.apply_updates(model, updates)
+            return model, opt_state, loss_score, grads
+
+        return step
+
+    def _step_with_mean_fn(self, loss):
+        @eqx.filter_jit
+        def step(model, data, opt_state, key, fn_mean):
+            loss_score, grads = loss(model=model, data=data, key=key, fn_mean=fn_mean)
+            updates, opt_state = self.optimizer.update(grads, opt_state)
+            model = eqx.apply_updates(model, updates)
+            return model, opt_state, loss_score, grads
+
+        return step
+
 
 class CVTrainer(BaseTrainer):
     def __init__(
@@ -123,24 +143,10 @@ class CVTrainer(BaseTrainer):
         model = self.model
         opt_state = self.optimizer.init(eqx.filter(model, eqx.is_array))
         loss = eqx.filter_jit(eqx.filter_value_and_grad(self.loss))
-
-        grad_clip_transform = optax.clip_by_global_norm(100)
-
-        @eqx.filter_jit
-        def step(model, data, opt_state, key):
-            loss_score, grads = loss(model=model, data=data, key=key)
-            grads, _ = grad_clip_transform.update(grads, None)
-            updates, opt_state = self.optimizer.update(grads, opt_state)
-            model = eqx.apply_updates(model, updates)
-            return model, opt_state, loss_score, grads
-
-        @eqx.filter_jit
-        def step_with_fn_mean(model, data, opt_state, key, fn_mean):
-            loss_score, grads = loss(model=model, data=data, key=key, fn_mean=fn_mean)
-            grads, _ = grad_clip_transform.update(grads, None)
-            updates, opt_state = self.optimizer.update(grads, opt_state)
-            model = eqx.apply_updates(model, updates)
-            return model, opt_state, loss_score, grads
+        if self.fn_mean is not None:
+            step = self._step_with_mean_fn(loss)
+        else:
+            step = self._step_fn(loss)
 
         pbar = tqdm(inf_loop(self.train_dataloader), total=self.n_steps)
         for batch_index, batch in enumerate(pbar):
@@ -149,7 +155,7 @@ class CVTrainer(BaseTrainer):
             batch = batch[0]  # dataloader returns tuple of size (1,)
             self.logger.set_step(batch_index)
             if self.fn_mean is not None:
-                model, opt_state, loss_score, grads = step_with_fn_mean(
+                model, opt_state, loss_score, grads = step(
                     model, batch, opt_state, key, self.fn_mean
                 )
             else:
@@ -235,21 +241,8 @@ class CVALSTrainer(BaseTrainer):
         loss_diffusion = eqx.filter_jit(eqx.filter_value_and_grad(self.loss_diffusion))
         loss_stein = eqx.filter_jit(eqx.filter_value_and_grad(self.loss_stein))
 
-        @eqx.filter_jit
-        def step_diffusion(model, data, opt_state, key, fn_mean):
-            loss_score, grads = loss_diffusion(
-                model=model, data=data, key=key, fn_mean=fn_mean
-            )
-            updates, opt_state = self.optimizer_diffusion.update(grads, opt_state)
-            model = eqx.apply_updates(model, updates)
-            return model, opt_state, loss_score, grads
-
-        @eqx.filter_jit
-        def step_stein(model, data, opt_state, key):
-            loss_score, grads = loss_stein(model=model, data=data, key=key)
-            updates, opt_state = self.optimizer_stein.update(grads, opt_state)
-            model = eqx.apply_updates(model, updates)
-            return model, opt_state, loss_score, grads
+        step_diffusion = self._step_with_mean_fn(loss_diffusion)
+        step_stein = self._step_with_mean_fn(loss_stein)
 
         pbar = tqdm(inf_loop(self.train_dataloader), total=self.n_steps)
         diffusion_steps, stein_steps = 0, 0
