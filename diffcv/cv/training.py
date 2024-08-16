@@ -83,24 +83,25 @@ class BaseTrainer:
         self.evaluation_metrics.update("fn_mean", fn_mean.item())
         self._log_scalars(self.evaluation_metrics)
 
-    def _step_fn(self, loss):
+    def _get_step_fn(self, loss, optimizer, with_fn_mean: bool = False):
+        @eqx.filter_jit
+        def opt_update(model, loss_score, grads, opt_state):
+            updates, opt_state = optimizer.update(grads, opt_state)
+            model = eqx.apply_updates(model, updates)
+            return model, opt_state, loss_score, grads
+
         @eqx.filter_jit
         def step(model, data, opt_state, key):
             loss_score, grads = loss(model=model, data=data, key=key)
-            updates, opt_state = self.optimizer.update(grads, opt_state)
-            model = eqx.apply_updates(model, updates)
-            return model, opt_state, loss_score, grads
+            return opt_update(model, loss_score, grads, opt_state)
 
-        return step
-
-    def _step_with_mean_fn(self, loss):
         @eqx.filter_jit
-        def step(model, data, opt_state, key, fn_mean):
+        def step_fn_mean(model, data, opt_state, key, fn_mean):
             loss_score, grads = loss(model=model, data=data, key=key, fn_mean=fn_mean)
-            updates, opt_state = self.optimizer.update(grads, opt_state)
-            model = eqx.apply_updates(model, updates)
-            return model, opt_state, loss_score, grads
-
+            return opt_update(model, loss_score, grads, opt_state)
+        
+        if with_fn_mean:
+            return step_fn_mean
         return step
 
 
@@ -144,9 +145,9 @@ class CVTrainer(BaseTrainer):
         opt_state = self.optimizer.init(eqx.filter(model, eqx.is_array))
         loss = eqx.filter_jit(eqx.filter_value_and_grad(self.loss))
         if self.fn_mean is not None:
-            step = self._step_with_mean_fn(loss)
+            step = self._get_step_fn(loss, self.optimizer, with_fn_mean=True)
         else:
-            step = self._step_fn(loss)
+            step = self._get_step_fn(loss, self.optimizer, with_fn_mean=False)
 
         pbar = tqdm(inf_loop(self.train_dataloader), total=self.n_steps)
         for batch_index, batch in enumerate(pbar):
@@ -241,8 +242,8 @@ class CVALSTrainer(BaseTrainer):
         loss_diffusion = eqx.filter_jit(eqx.filter_value_and_grad(self.loss_diffusion))
         loss_stein = eqx.filter_jit(eqx.filter_value_and_grad(self.loss_stein))
 
-        step_diffusion = self._step_with_mean_fn(loss_diffusion)
-        step_stein = self._step_with_mean_fn(loss_stein)
+        step_diffusion = self._get_step_fn(loss_diffusion, self.optimizer_diffusion, with_fn_mean=True)
+        step_stein = self._get_step_fn(loss_stein, self.optimizer_stein, with_fn_mean=False)
 
         pbar = tqdm(inf_loop(self.train_dataloader), total=self.n_steps)
         diffusion_steps, stein_steps = 0, 0
