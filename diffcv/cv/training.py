@@ -50,6 +50,7 @@ class BaseTrainer:
         n_steps: int = 1000,
         eval_every_n_steps: int = 1000,
         log_every_n_steps: int = 100,
+        grad_clipping: int = -1,
     ):
         self.fn = fn
         self.grad_log_prob = grad_log_prob
@@ -59,6 +60,11 @@ class BaseTrainer:
         self.eval_every_n_steps = eval_every_n_steps
         self.train_metrics: MetricTracker = None
         self.evaluation_metrics: MetricTracker = None
+        self.grad_clip_transform = (
+            optax.clip_by_global_norm(grad_clipping)
+            if grad_clipping > 0
+            else optax.identity()
+        )
 
     def _log_scalars(self, metric_tracker: MetricTracker):
         for metric_name in metric_tracker.keys():
@@ -84,9 +90,11 @@ class BaseTrainer:
         self._log_scalars(self.evaluation_metrics)
 
     def _get_step_fn(self, loss, optimizer, with_fn_mean: bool = False):
+
         @eqx.filter_jit
         def opt_update(model, loss_score, grads, opt_state):
-            updates, opt_state = optimizer.update(grads, opt_state)
+            grads, _ = self.grad_clip_transform.update(grads, None)
+            updates, opt_state = optimizer.update(grads, opt_state, model)
             model = eqx.apply_updates(model, updates)
             return model, opt_state, loss_score, grads
 
@@ -99,7 +107,7 @@ class BaseTrainer:
         def step_fn_mean(model, data, opt_state, key, fn_mean):
             loss_score, grads = loss(model=model, data=data, key=key, fn_mean=fn_mean)
             return opt_update(model, loss_score, grads, opt_state)
-        
+
         if with_fn_mean:
             return step_fn_mean
         return step
@@ -121,6 +129,7 @@ class CVTrainer(BaseTrainer):
         eval_every_n_steps: int = 1000,
         log_every_n_steps: int = 100,
         patience: int = 1000,
+        grad_clipping: int = -1,
     ):
         super().__init__(
             fn=fn,
@@ -129,6 +138,7 @@ class CVTrainer(BaseTrainer):
             n_steps=n_steps,
             eval_every_n_steps=eval_every_n_steps,
             log_every_n_steps=log_every_n_steps,
+            grad_clipping=grad_clipping,
         )
         self.model = model
         self.train_dataloader = train_dataloader
@@ -208,6 +218,7 @@ class CVALSTrainer(BaseTrainer):
         eval_every_n_steps: int = 1000,
         log_every_n_steps: int = 100,
         patience: int = 1000,
+        grad_clipping: int = -1,
     ):
         super().__init__(
             fn=fn,
@@ -216,6 +227,7 @@ class CVALSTrainer(BaseTrainer):
             n_steps=n_steps,
             eval_every_n_steps=eval_every_n_steps,
             log_every_n_steps=log_every_n_steps,
+            grad_clipping=grad_clipping,
         )
         self.model = model
         self.train_dataloader = train_dataloader
@@ -242,8 +254,12 @@ class CVALSTrainer(BaseTrainer):
         loss_diffusion = eqx.filter_jit(eqx.filter_value_and_grad(self.loss_diffusion))
         loss_stein = eqx.filter_jit(eqx.filter_value_and_grad(self.loss_stein))
 
-        step_diffusion = self._get_step_fn(loss_diffusion, self.optimizer_diffusion, with_fn_mean=True)
-        step_stein = self._get_step_fn(loss_stein, self.optimizer_stein, with_fn_mean=False)
+        step_diffusion = self._get_step_fn(
+            loss_diffusion, self.optimizer_diffusion, with_fn_mean=True
+        )
+        step_stein = self._get_step_fn(
+            loss_stein, self.optimizer_stein, with_fn_mean=False
+        )
 
         pbar = tqdm(inf_loop(self.train_dataloader), total=self.n_steps)
         diffusion_steps, stein_steps = 0, 0
