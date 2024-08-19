@@ -11,9 +11,9 @@ def get_data_from_sampler(
     n_chains: int,
     shuffle: bool = True,
 ):
-    training_samples = sampler(key, n_chains=n_chains)
-    training_samples = training_samples.reshape(-1, training_samples.shape[-1])
-    dataset = jdl.ArrayDataset(training_samples)
+    samples = sampler(key, n_chains=n_chains)
+    samples = samples.reshape(-1, samples.shape[-1])
+    dataset = jdl.ArrayDataset(samples)
     dataloader = jdl.DataLoader(
         dataset, backend="jax", batch_size=batch_size, shuffle=shuffle, drop_last=True
     )
