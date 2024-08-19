@@ -17,9 +17,14 @@ class LangevinSampler(Sampler):
         burnin_steps: int = 0,
         init_std: float = 1.0,
         step: str = "ula",
+        skip_samples: int = 1,
     ):
         super().__init__(
-            dim=dim, n_samples=n_samples, burnin_steps=burnin_steps, init_std=init_std
+            dim=dim,
+            n_samples=n_samples,
+            burnin_steps=burnin_steps,
+            init_std=init_std,
+            skip_samples=skip_samples,
         )
         self.log_prob = log_prob
         self.grad_log_prob = jax.jit(jax.grad(log_prob))
@@ -57,24 +62,25 @@ class LangevinSampler(Sampler):
                 prev_x,
             )
 
-        keys = random.split(key, self.n_samples + self.burnin_steps)
+        keys = random.split(key, self.skip_samples * self.n_samples + self.burnin_steps)
         if self.step == "ula":
             step_fn = ula_step
         elif self.step == "mala":
             step_fn = mala_step
         else:
             raise NotImplementedError(f"Unknown step function {self.step}")
-        final_xs, xs = jax.lax.scan(step_fn, init=x, xs=keys)
+        _, xs = jax.lax.scan(step_fn, init=x, xs=keys)
         xs = jnp.vstack(xs)
-        return final_xs, xs[self.burnin_steps :]
+        return xs[self.burnin_steps :][:: self.skip_samples]
 
     @eqx.filter_jit
     def __call__(self, key: jax.random.PRNGKey, n_chains: int = 1):
+        key1, key2 = jax.random.split(key, 2)
         starter_points = (
-            jax.random.normal(key, shape=(n_chains, self.dim)) * self.init_std
+            jax.random.normal(key1, shape=(n_chains, self.dim)) * self.init_std
         )
-        starter_keys = jax.random.split(key, n_chains)
-        _, samples = jax.vmap(self.sample_chain)(starter_points, starter_keys)
+        starter_keys = jax.random.split(key2, n_chains)
+        samples = jax.vmap(self.sample_chain)(starter_points, starter_keys)
         return samples
 
 
@@ -87,6 +93,7 @@ class ULASampler(LangevinSampler):
         n_samples: int = 1000,
         burnin_steps: int = 0,
         init_std: float = 1.0,
+        skip_samples: int = 1,
     ):
         super().__init__(
             log_prob=log_prob,
@@ -96,6 +103,7 @@ class ULASampler(LangevinSampler):
             burnin_steps=burnin_steps,
             init_std=init_std,
             step="ula",
+            skip_samples=skip_samples,
         )
 
 
@@ -108,6 +116,7 @@ class MALASampler(LangevinSampler):
         n_samples: int = 1000,
         burnin_steps: int = 0,
         init_std: float = 1.0,
+        skip_samples: int = 1,
     ):
         super().__init__(
             log_prob=log_prob,
@@ -117,4 +126,5 @@ class MALASampler(LangevinSampler):
             burnin_steps=burnin_steps,
             init_std=init_std,
             step="mala",
+            skip_samples=skip_samples,
         )

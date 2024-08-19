@@ -17,16 +17,22 @@ class PyroSampler(Sampler):
         n_samples: int = 1000,
         burnin_steps: int = 0,
         init_std: float = 1.0,
+        skip_samples: int = 1,
     ):
         super().__init__(
-            dim=dim, n_samples=n_samples, burnin_steps=burnin_steps, init_std=init_std
+            dim=dim,
+            n_samples=n_samples,
+            burnin_steps=burnin_steps,
+            init_std=init_std,
+            skip_samples=skip_samples,
         )
         self.kernel = kernel
 
     def __call__(self, key: jax.random.PRNGKey, n_chains: int = 1000):
+        key1, key2 = jax.random.split(key)
         starter_points = (
             jax.random.normal(
-                key, shape=(n_chains, self.dim) if n_chains > 1 else (self.dim,)
+                key1, shape=(n_chains, self.dim) if n_chains > 1 else (self.dim,)
             )
             * self.init_std
         )
@@ -35,11 +41,11 @@ class PyroSampler(Sampler):
             num_samples=self.n_samples,
             num_warmup=self.burnin_steps,
             num_chains=n_chains,
+            thinning=self.skip_samples,
             jit_model_args=True,
             progress_bar=False,
         )
-        _, subkey = jax.random.split(key)
-        mcmc.run(subkey, init_params=starter_points)
+        mcmc.run(key2, init_params=starter_points)
         samples = mcmc.get_samples(group_by_chain=True)
         return samples
 
@@ -53,6 +59,7 @@ class HMCSampler(PyroSampler):
         n_samples: int = 1000,
         burnin_steps: int = 0,
         init_std: float = 1.0,
+        skip_samples: int = 1,
     ):
         potential_fn = jax.jit(lambda x: -log_prob(x).squeeze())
         kernel = HMC(
@@ -67,4 +74,5 @@ class HMCSampler(PyroSampler):
             n_samples=n_samples,
             burnin_steps=burnin_steps,
             init_std=init_std,
+            skip_samples=skip_samples,
         )
