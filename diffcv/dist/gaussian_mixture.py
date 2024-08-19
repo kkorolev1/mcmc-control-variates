@@ -35,12 +35,12 @@ class GaussianMixture:
         log_ps = multivariate_normal.logpdf(x, self.means, self.covs)
         return logsumexp(log_ps, b=self.coeffs)
 
-    def sample(self, n_samples, key):
+    def sample(self, key: random.PRNGKey, n_samples: int):
         mixture_size = len(self.coeffs)
-        mixture_component = random.randint(key, (n_samples,), 0, mixture_size)
-        key, subkey = random.split(key)
+        key1, key2 = random.split(key)
+        mixture_component = random.randint(key1, (n_samples,), 0, mixture_size)
         samples = random.multivariate_normal(
-            subkey, self.means, self.covs, shape=(n_samples, mixture_size)
+            key2, self.means, self.covs, shape=(n_samples, mixture_size)
         )
         return jnp.take_along_axis(
             samples, mixture_component[:, None, None], axis=1
