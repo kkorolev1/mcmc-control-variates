@@ -27,6 +27,8 @@ class Estimator:
             samples = self.sampler(exp_key, n_chains=n_chains)
             samples = samples.reshape(-1, samples.shape[-1])
             estimates.append(jax.vmap(self.fn)(samples).mean())
+            # if progress:
+            #     keys.set_description(f"{jnp.stack(estimates).mean(): .3f}")
         estimates = jnp.stack(estimates)
         return estimates
 
