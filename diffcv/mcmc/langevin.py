@@ -13,18 +13,12 @@ class LangevinSampler(Sampler):
         log_prob: tp.Callable,
         dim: int,
         gamma: float = 5e-3,
-        n_samples: int = 1000,
-        burnin_steps: int = 0,
         init_std: float = 1.0,
         step: str = "ula",
-        skip_samples: int = 1,
     ):
         super().__init__(
             dim=dim,
-            n_samples=n_samples,
-            burnin_steps=burnin_steps,
             init_std=init_std,
-            skip_samples=skip_samples,
         )
         self.log_prob = log_prob
         self.grad_log_prob = jax.jit(jax.grad(log_prob))
@@ -32,7 +26,14 @@ class LangevinSampler(Sampler):
         self.step = step
 
     @eqx.filter_jit
-    def sample_chain(self, x, key: random.PRNGKey):
+    def sample_chain(
+        self,
+        x: jnp.ndarray,
+        key: random.PRNGKey,
+        steps: int = 1_000,
+        burnin_steps: int = 1_000,
+        skip_steps: int = 1,
+    ):
         def ula_step(prev_x, key: random.PRNGKey):
             z = random.normal(key, shape=x.shape)
             new_x = (
@@ -62,7 +63,7 @@ class LangevinSampler(Sampler):
                 prev_x,
             )
 
-        keys = random.split(key, self.skip_samples * self.n_samples + self.burnin_steps)
+        keys = random.split(key, skip_steps * steps + burnin_steps)
         if self.step == "ula":
             step_fn = ula_step
         elif self.step == "mala":
@@ -71,16 +72,25 @@ class LangevinSampler(Sampler):
             raise NotImplementedError(f"Unknown step function {self.step}")
         _, xs = jax.lax.scan(step_fn, init=x, xs=keys)
         xs = jnp.vstack(xs)
-        return xs[self.burnin_steps :][:: self.skip_samples]
+        return xs[burnin_steps:][::skip_steps]
 
     @eqx.filter_jit
-    def __call__(self, key: jax.random.PRNGKey, n_chains: int = 1):
+    def __call__(
+        self,
+        key: jax.random.PRNGKey,
+        steps: int = 1_000,
+        burnin_steps: int = 1_000,
+        n_chains: int = 1,
+        skip_steps: int = 1,
+    ):
         key1, key2 = jax.random.split(key, 2)
         starter_points = (
             jax.random.normal(key1, shape=(n_chains, self.dim)) * self.init_std
         )
         starter_keys = jax.random.split(key2, n_chains)
-        samples = jax.vmap(self.sample_chain)(starter_points, starter_keys)
+        samples = jax.vmap(self.sample_chain, in_axes=(0, 0, None, None, None))(
+            starter_points, starter_keys, steps, burnin_steps, skip_steps
+        )
         return samples
 
 
@@ -90,20 +100,14 @@ class ULASampler(LangevinSampler):
         log_prob: tp.Callable,
         dim: int,
         gamma: float = 5e-3,
-        n_samples: int = 1000,
-        burnin_steps: int = 0,
         init_std: float = 1.0,
-        skip_samples: int = 1,
     ):
         super().__init__(
             log_prob=log_prob,
             dim=dim,
             gamma=gamma,
-            n_samples=n_samples,
-            burnin_steps=burnin_steps,
             init_std=init_std,
             step="ula",
-            skip_samples=skip_samples,
         )
 
 
@@ -113,18 +117,12 @@ class MALASampler(LangevinSampler):
         log_prob: tp.Callable,
         dim: int,
         gamma: float = 5e-3,
-        n_samples: int = 1000,
-        burnin_steps: int = 0,
         init_std: float = 1.0,
-        skip_samples: int = 1,
     ):
         super().__init__(
             log_prob=log_prob,
             dim=dim,
             gamma=gamma,
-            n_samples=n_samples,
-            burnin_steps=burnin_steps,
             init_std=init_std,
             step="mala",
-            skip_samples=skip_samples,
         )

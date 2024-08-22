@@ -3,8 +3,10 @@ import jax
 import jax.numpy as jnp
 import typing as tp
 from tqdm.auto import tqdm
+from dataclasses import asdict
 
 from .base import Sampler
+from diffcv.config import EstimatorConfig
 
 
 class Estimator:
@@ -15,20 +17,20 @@ class Estimator:
     def __call__(
         self,
         key: jax.random.PRNGKey,
-        n_chains: int = 1000,
-        n_estimates: int = 1,
+        config: EstimatorConfig,
         progress: bool = True,
     ):
-        keys = jax.random.split(key, n_estimates)
+        keys = jax.random.split(key, config.n_estimates)
         if progress:
             keys = tqdm(keys)
         estimates = []
+        n_chains = int(config.total_samples / config.sampling_config.steps)
         for exp_key in keys:
-            samples = self.sampler(exp_key, n_chains=n_chains)
+            samples = self.sampler(
+                exp_key, **asdict(config.sampling_config), n_chains=n_chains
+            )
             samples = samples.reshape(-1, samples.shape[-1])
             estimates.append(jax.vmap(self.fn)(samples).mean())
-            # if progress:
-            #     keys.set_description(f"{jnp.stack(estimates).mean(): .3f}")
         estimates = jnp.stack(estimates)
         return estimates
 

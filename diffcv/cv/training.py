@@ -51,6 +51,7 @@ class BaseTrainer:
         eval_every_n_steps: int = 1000,
         log_every_n_steps: int = 100,
         grad_clipping: int = -1,
+        **kwargs,
     ):
         self.fn = fn
         self.grad_log_prob = grad_log_prob
@@ -130,6 +131,7 @@ class CVTrainer(BaseTrainer):
         log_every_n_steps: int = 100,
         patience: int = 1000,
         grad_clipping: int = -1,
+        **kwargs,
     ):
         super().__init__(
             fn=fn,
@@ -219,6 +221,7 @@ class CVALSTrainer(BaseTrainer):
         log_every_n_steps: int = 100,
         patience: int = 1000,
         grad_clipping: int = -1,
+        **kwargs,
     ):
         super().__init__(
             fn=fn,

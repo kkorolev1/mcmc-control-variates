@@ -28,7 +28,14 @@ class PyroSampler(Sampler):
         )
         self.kernel = kernel
 
-    def __call__(self, key: jax.random.PRNGKey, n_chains: int = 1000):
+    def __call__(
+        self,
+        key: jax.random.PRNGKey,
+        steps: int = 1_000,
+        burnin_steps: int = 1_000,
+        n_chains: int = 1,
+        skip_steps: int = 1,
+    ):
         key1, key2 = jax.random.split(key)
         starter_points = (
             jax.random.normal(
@@ -38,10 +45,10 @@ class PyroSampler(Sampler):
         )
         mcmc = MCMC(
             self.kernel,
-            num_samples=self.n_samples,
-            num_warmup=self.burnin_steps,
+            num_samples=steps,
+            num_warmup=burnin_steps,
             num_chains=n_chains,
-            thinning=self.skip_samples,
+            thinning=skip_steps,
             jit_model_args=True,
             progress_bar=False,
         )

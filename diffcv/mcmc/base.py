@@ -7,16 +7,17 @@ class Sampler:
     def __init__(
         self,
         dim: int,
-        n_samples: int = 1000,
-        burnin_steps: int = 0,
         init_std: float = 1.0,
-        skip_samples: int = 1,
     ):
         self.dim = dim
-        self.n_samples = n_samples
-        self.burnin_steps = burnin_steps
         self.init_std = init_std
-        self.skip_samples = skip_samples
 
-    def __call__(self, key: jax.random.PRNGKey, n_chains: int = 1):
+    def __call__(
+        self,
+        key: jax.random.PRNGKey,
+        steps: int = 1_000,
+        burnin_steps: int = 1_000,
+        n_chains: int = 1,
+        skip_steps: int = 1,
+    ):
         raise NotImplementedError
