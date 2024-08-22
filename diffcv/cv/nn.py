@@ -121,3 +121,20 @@ class CVLinear(CVMLP):
             key=key,
             use_final_bias=use_bias,
         )
+
+
+class ModelWithConstant(eqx.Module):
+    """
+    For optimizing sample variance
+    """
+
+    model: eqx.Module
+    c: jax.Array
+
+    def __init__(self, model: eqx.Module, shape, key: jax.random.PRNGKey):
+        self.model = model
+        self.c = jax.random.normal(key, shape)
+
+    @eqx.filter_jit
+    def __call__(self, x):
+        return self.model(x)
