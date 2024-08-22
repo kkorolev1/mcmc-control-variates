@@ -37,10 +37,14 @@ class OptimizerConfig:
 
 
 @dataclass
-class BaseTrainerConfig:
+class DataConfig:
     batch_size: int
     train_size: int
     eval_size: int
+
+
+@dataclass
+class BaseTrainerConfig:
     grad_clipping: float
     patience: int
     eval_every_n_steps: int

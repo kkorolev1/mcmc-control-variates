@@ -22,9 +22,8 @@ def l2_reg(model: eqx.Module, alpha=0.1):
 
 
 class DiffusionLoss:
-    def __init__(self, fn: tp.Callable, l2_alpha: float = 0.0):
+    def __init__(self, fn: tp.Callable):
         self.fn = fn
-        self.l2_alpha = l2_alpha
 
     def __call__(
         self,
@@ -38,7 +37,7 @@ class DiffusionLoss:
         f_wave = f_vals - fn_mean  # f_vals.mean(axis=-1)
         grad_g = jax.vmap(jax.grad(model))(data)
         loss = -2 * g_vals * f_wave + (grad_g**2).sum(axis=-1)
-        return loss.mean()  # + l2_reg(model, alpha=self.l2_alpha)
+        return loss.mean()
 
 
 class VarLoss:
