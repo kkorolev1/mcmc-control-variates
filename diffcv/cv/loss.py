@@ -34,7 +34,7 @@ class DiffusionLoss:
     ):
         g_vals = jax.vmap(model)(data)
         f_vals = jax.vmap(self.fn)(data)
-        f_wave = f_vals - fn_mean  # f_vals.mean(axis=-1)
+        f_wave = f_vals - f_vals.mean(axis=-1)
         grad_g = jax.vmap(jax.grad(model))(data)
         loss = -2 * g_vals * f_wave + (grad_g**2).sum(axis=-1)
         return loss.mean()

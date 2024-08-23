@@ -11,6 +11,11 @@ def identity(x):
     return x
 
 
+def normal_init(param, key):
+    initializer = jax.nn.initializers.normal(stddev=0.01)
+    return initializer(key, param.shape, jnp.float32)
+
+
 def xavier_uniform_init(param, key):
     initializer = jax.nn.initializers.glorot_uniform()
     return initializer(key, param.shape, jnp.float32)
