@@ -24,19 +24,6 @@ class EstimatorConfig:
 
 
 @dataclass
-class SchedulerConfig:
-    init_value: float
-    transition_steps: int
-    decay_rate: float
-
-
-@dataclass
-class OptimizerConfig:
-    method: str
-    weight_decay: float
-
-
-@dataclass
 class DataConfig:
     batch_size: int
     train_size: int
@@ -44,25 +31,15 @@ class DataConfig:
 
 
 @dataclass
-class BaseTrainerConfig:
+class TrainerConfig:
     grad_clipping: float
     patience: int
     eval_every_n_steps: int
-    sampling_config: SamplingConfig
-
-
-@dataclass
-class TrainerConfig(BaseTrainerConfig):
-    scheduler_config: SchedulerConfig
-    optimizer_config: OptimizerConfig
     n_steps: int
 
 
 @dataclass
-class TrainerALSConfig(BaseTrainerConfig):
-    scheduler_config: SchedulerConfig
-    optimizer_config: OptimizerConfig
-    n_steps: int
+class TrainerALSConfig(TrainerConfig):
     switch_steps: int
 
 

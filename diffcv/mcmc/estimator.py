@@ -4,6 +4,7 @@ import jax.numpy as jnp
 import typing as tp
 from tqdm.auto import tqdm
 from dataclasses import asdict
+import math
 
 from .base import Sampler
 from diffcv.config import EstimatorConfig
@@ -24,7 +25,7 @@ class Estimator:
         if progress:
             keys = tqdm(keys)
         estimates = []
-        n_chains = int(config.total_samples / config.sampling_config.steps)
+        n_chains = math.ceil(config.total_samples / config.sampling_config.steps)
         for exp_key in keys:
             samples = self.sampler(
                 exp_key, **asdict(config.sampling_config), n_chains=n_chains
@@ -36,8 +37,8 @@ class Estimator:
 
     @staticmethod
     def bias(true_pi, estimates):
-        return true_pi - estimates.mean()
+        return (true_pi - estimates.mean()).item()
 
     @staticmethod
     def std(estimates):
-        return estimates.std()
+        return estimates.std().item()

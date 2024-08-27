@@ -125,7 +125,7 @@ class CVTrainer(BaseTrainer):
         optimizer: optax.GradientTransformation,
         loss: tp.Callable,
         logger: Logger,
-        fn_mean: float | None = None,
+        use_fn_mean: bool = False,
         n_steps: int = 1000,
         eval_every_n_steps: int = 1000,
         log_every_n_steps: int = 100,
@@ -147,7 +147,7 @@ class CVTrainer(BaseTrainer):
         self.eval_dataloader = eval_dataloader
         self.optimizer = optimizer
         self.loss = loss
-        self.fn_mean = fn_mean
+        self.use_fn_mean = use_fn_mean
         self.early_stopping = EarlyStopping(patience)
         self.train_metrics = MetricTracker("loss", "grad_norm")
         self.evaluation_metrics = MetricTracker("fn_mean")
@@ -156,10 +156,7 @@ class CVTrainer(BaseTrainer):
         model = self.model
         opt_state = self.optimizer.init(eqx.filter(model, eqx.is_array))
         loss = eqx.filter_jit(eqx.filter_value_and_grad(self.loss))
-        if self.fn_mean is not None:
-            step = self._get_step_fn(loss, self.optimizer, with_fn_mean=True)
-        else:
-            step = self._get_step_fn(loss, self.optimizer, with_fn_mean=False)
+        step = self._get_step_fn(loss, self.optimizer, with_fn_mean=self.use_fn_mean)
 
         pbar = tqdm(inf_loop(self.train_dataloader), total=self.n_steps)
         for batch_index, batch in enumerate(pbar):
@@ -167,9 +164,10 @@ class CVTrainer(BaseTrainer):
                 break
             batch = batch[0]  # dataloader returns tuple of size (1,)
             self.logger.set_step(batch_index)
-            if self.fn_mean is not None:
+            if self.use_fn_mean:
+                fn_mean = jax.vmap(model)(batch).mean()
                 model, opt_state, loss_score, grads = step(
-                    model, batch, opt_state, key, self.fn_mean
+                    model, batch, opt_state, key, fn_mean
                 )
             else:
                 model, opt_state, loss_score, grads = step(model, batch, opt_state, key)

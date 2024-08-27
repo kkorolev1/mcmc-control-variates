@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import equinox as eqx
 import jax_dataloader as jdl
 from dataclasses import asdict
+import math
 
 from diffcv.mcmc.base import Sampler
 from diffcv.config import SamplingConfig
@@ -16,7 +17,7 @@ def get_data_from_sampler(
     sampling_config: SamplingConfig,
     shuffle: bool = True,
 ):
-    n_chains = int(total_samples / sampling_config.steps)
+    n_chains = math.ceil(total_samples / sampling_config.steps)
     samples = sampler(key, **asdict(sampling_config), n_chains=n_chains)
     samples = samples.reshape(-1, samples.shape[-1])[:total_samples]
     dataset = jdl.ArrayDataset(samples)
