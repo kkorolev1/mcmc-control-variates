@@ -44,7 +44,7 @@ sns.set_style("darkgrid")
 
 
 sampler_config = SamplerConfig(
-    dim=100,
+    dim=1,
     gamma=8e-2,
     init_std=5.0,
 )
@@ -63,9 +63,26 @@ estimator_config = EstimatorConfig(
 
 rng = jax.random.PRNGKey(50)
 
-dist = D.MultivariateNormal(
-    loc=10 * jnp.ones((sampler_config.dim), dtype=float),
-    covariance_matrix=jnp.eye((sampler_config.dim), dtype=float),
+# dist = D.MultivariateNormal(
+#     loc=10 * jnp.ones((sampler_config.dim), dtype=float),
+#     covariance_matrix=jnp.eye((sampler_config.dim), dtype=float),
+# )
+a = 5
+dist = GaussianMixture(
+    component_means=jnp.stack(
+        [
+            -a * jnp.ones((sampler_config.dim), dtype=float),
+            a * jnp.ones((sampler_config.dim), dtype=float),
+        ],
+        axis=0,
+    ),
+    component_covs=jnp.stack(
+        [
+            jnp.ones((sampler_config.dim), dtype=float),
+            jnp.ones((sampler_config.dim), dtype=float),
+        ],
+        axis=0,
+    ),
 )
 log_prob = jax.jit(dist.log_prob)
 grad_log_prob = jax.jit(jax.grad(dist.log_prob))
@@ -91,9 +108,13 @@ def estimate(
 
 results = {}
 
-rng, key = jax.random.split(rng)
-results["base"] = estimate(key, fn, estimator_config)
-print(results["base"]["bias"], results["base"]["std"])
+
+def base_exp():
+    global rng
+    rng, key = jax.random.split(rng)
+    results["base"] = estimate(key, fn, estimator_config)
+    print(results["base"]["bias"], results["base"]["std"])
+
 
 data_config = DataConfig(
     batch_size=1024,
@@ -101,6 +122,7 @@ data_config = DataConfig(
     eval_size=1024 * 20,
 )
 
+rng, key = jax.random.split(rng)
 train_dataloader = get_data_from_sampler(
     key,
     data_config.batch_size,
@@ -110,6 +132,7 @@ train_dataloader = get_data_from_sampler(
 )
 print(f"train_dataset length: {len(train_dataloader.dataloader.dataset)}")
 
+rng, key = jax.random.split(rng)
 eval_dataloader = get_data_from_sampler(
     key,
     data_config.batch_size,
@@ -151,172 +174,183 @@ def get_optimizer(scheduler: optax.Schedule, optimizer_name: str, **kwargs):
         raise NotImplementedError(f"unknown optimizer: {optimizer_name}")
 
 
-model_config = ModelConfig(
-    depth=2,
-    width_size=128,
-    activation=requ,
-)
+def diffusion_exp():
+    global rng
+    model_config = ModelConfig(
+        depth=2,
+        width_size=128,
+        activation=requ,
+    )
 
-trainer_config = TrainerConfig(
-    grad_clipping=1,
-    patience=10_000,
-    eval_every_n_steps=2_000,
-    n_steps=50_000,
-)
+    trainer_config = TrainerConfig(
+        grad_clipping=1,
+        patience=10_000,
+        eval_every_n_steps=2_000,
+        n_steps=50_000,
+    )
 
-logger = Logger()
+    logger = Logger()
 
-rng, key = jax.random.split(rng)
-model_diffusion = get_model(key, sampler_config.dim, model_config)
-loss = DiffusionLoss(fn=fn)
+    rng, key = jax.random.split(rng)
+    model_diffusion = get_model(key, sampler_config.dim, model_config)
+    loss = DiffusionLoss(fn=fn)
 
+    scheduler = get_scheduler(
+        "exponential",
+        init_value=1e-4,
+        transition_steps=20_000,
+        decay_rate=0.9,
+    )
 
-scheduler = get_scheduler(
-    "exponential",
-    init_value=1e-3,
-    transition_steps=20_000,
-    decay_rate=0.9,
-)
+    optimizer = get_optimizer(scheduler, "adamw", weight_decay=1e-1)
 
-optimizer = get_optimizer(scheduler, "adamw", weight_decay=1e-2)
+    trainer = CVTrainer(
+        model_diffusion,
+        fn,
+        grad_log_prob,
+        train_dataloader,
+        eval_dataloader,
+        optimizer,
+        loss,
+        logger,
+        use_fn_mean=True,
+        **asdict(trainer_config),
+    )
 
-trainer = CVTrainer(
-    model_diffusion,
-    fn,
-    grad_log_prob,
-    train_dataloader,
-    eval_dataloader,
-    optimizer,
-    loss,
-    logger,
-    use_fn_mean=True,
-    **asdict(trainer_config),
-)
+    rng, key = jax.random.split(rng)
+    model_diffusion = trainer.train(key)
 
-rng, key = jax.random.split(rng)
-model_diffusion = trainer.train(key)
+    generator_diffusion = ScalarGenerator(grad_log_prob, model_diffusion)
+    fn_with_cv = lambda x: fn(x) + generator_diffusion(x)
 
-generator_diffusion = ScalarGenerator(grad_log_prob, model_diffusion)
-fn_with_cv = lambda x: fn(x) + generator_diffusion(x)
-
-rng, key = jax.random.split(rng)
-results["diffusion"] = estimate(key, fn_with_cv, estimator_config)
-print(results["diffusion"]["bias"], results["diffusion"]["std"])
-
-model_config = ModelConfig(
-    depth=2,
-    width_size=128,
-    activation=requ,
-)
-
-trainer_config = TrainerALSConfig(
-    grad_clipping=1,
-    patience=10_000,
-    eval_every_n_steps=2_000,
-    n_steps=50_000,
-    switch_steps=10_000,
-)
-
-logger = Logger()
-
-rng, key = jax.random.split(rng)
-model_diffusion_als = get_model(key, sampler_config.dim, model_config)
-
-scheduler_diffusion = get_scheduler(
-    "exponential",
-    init_value=1e-3,
-    transition_steps=20_000,
-    decay_rate=0.9,
-)
-
-optimizer_diffusion = get_optimizer(scheduler_diffusion, "adamw", weight_decay=1e-2)
-
-scheduler_stein = get_scheduler(
-    "exponential",
-    init_value=1e-3,
-    transition_steps=20_000,
-    decay_rate=0.9,
-)
-
-optimizer_stein = get_optimizer(scheduler_stein, "adamw", weight_decay=1e-2)
-
-loss_diffusion = DiffusionLoss(fn=fn)
-loss_stein = DiffLoss(fn=fn, grad_log_prob=grad_log_prob, noise_std=1.0)
+    rng, key = jax.random.split(rng)
+    results["diffusion"] = estimate(key, fn_with_cv, estimator_config)
+    print(results["diffusion"]["bias"], results["diffusion"]["std"])
 
 
-trainer = CVALSTrainer(
-    model_diffusion_als,
-    fn,
-    grad_log_prob,
-    train_dataloader,
-    eval_dataloader,
-    optimizer_diffusion,
-    optimizer_stein,
-    loss_diffusion,
-    loss_stein,
-    logger=logger,
-    **asdict(trainer_config),
-)
+def diffusion_als_exp():
+    global rng
+    model_config = ModelConfig(
+        depth=2,
+        width_size=128,
+        activation=requ,
+    )
 
-rng, key = jax.random.split(rng)
-model_diffusion_als = trainer.train(key)
+    trainer_config = TrainerALSConfig(
+        grad_clipping=1,
+        patience=10_000,
+        eval_every_n_steps=2_000,
+        n_steps=50_000,
+        switch_steps=10_000,
+    )
 
-generator_diffusion_als = ScalarGenerator(grad_log_prob, model_diffusion_als)
-fn_with_cv = lambda x: fn(x) + generator_diffusion_als(x)
+    logger = Logger()
 
-rng, key = jax.random.split(rng)
-results["diffusion_als"] = estimate(key, fn_with_cv, estimator_config)
-print(results["diffusion_als"]["bias"], results["diffusion_als"]["std"])
+    rng, key = jax.random.split(rng)
+    model_diffusion_als = get_model(key, sampler_config.dim, model_config)
 
-model_config = ModelConfig(
-    depth=2,
-    width_size=128,
-    activation=requ,
-)
+    scheduler_diffusion = get_scheduler(
+        "exponential",
+        init_value=1e-4,
+        transition_steps=20_000,
+        decay_rate=0.9,
+    )
 
-trainer_config = TrainerConfig(
-    grad_clipping=1,
-    patience=10_000,
-    eval_every_n_steps=2_000,
-    n_steps=30_000,
-)
+    optimizer_diffusion = get_optimizer(scheduler_diffusion, "adamw", weight_decay=1e-1)
 
-logger = Logger()
+    scheduler_stein = get_scheduler(
+        "exponential",
+        init_value=1e-4,
+        transition_steps=20_000,
+        decay_rate=0.9,
+    )
 
-rng, key = jax.random.split(rng)
-model_diff = get_model(key, sampler_config.dim, model_config)
-loss = DiffLoss(fn=fn, grad_log_prob=grad_log_prob, noise_std=1.0)
+    optimizer_stein = get_optimizer(scheduler_stein, "adamw", weight_decay=1e-1)
 
-scheduler = get_scheduler(
-    "exponential",
-    init_value=1e-3,
-    transition_steps=20_000,
-    decay_rate=0.9,
-)
+    loss_diffusion = DiffusionLoss(fn=fn)
+    loss_stein = DiffLoss(fn=fn, grad_log_prob=grad_log_prob, noise_std=1.0)
 
-optimizer = get_optimizer(scheduler, "adamw", weight_decay=1e-2)
+    trainer = CVALSTrainer(
+        model_diffusion_als,
+        fn,
+        grad_log_prob,
+        train_dataloader,
+        eval_dataloader,
+        optimizer_diffusion,
+        optimizer_stein,
+        loss_diffusion,
+        loss_stein,
+        logger=logger,
+        **asdict(trainer_config),
+    )
 
-trainer = CVTrainer(
-    model_diff,
-    fn,
-    grad_log_prob,
-    train_dataloader,
-    eval_dataloader,
-    optimizer,
-    loss,
-    logger,
-    **asdict(trainer_config),
-)
-rng, key = jax.random.split(rng)
-model_diff = trainer.train(key)
+    rng, key = jax.random.split(rng)
+    model_diffusion_als = trainer.train(key)
 
-generator_diff = ScalarGenerator(grad_log_prob, model_diff)
-fn_with_cv = lambda x: fn(x) + generator_diff(x)
+    generator_diffusion_als = ScalarGenerator(grad_log_prob, model_diffusion_als)
+    fn_with_cv = lambda x: fn(x) + generator_diffusion_als(x)
 
-rng, key = jax.random.split(rng)
-results["diff"] = estimate(key, fn_with_cv, estimator_config)
-print(results["diff"]["bias"], results["diff"]["std"])
+    rng, key = jax.random.split(rng)
+    results["diffusion_als"] = estimate(key, fn_with_cv, estimator_config)
+    print(results["diffusion_als"]["bias"], results["diffusion_als"]["std"])
 
+
+def diff_exp():
+    global rng
+    model_config = ModelConfig(
+        depth=2,
+        width_size=128,
+        activation=requ,
+    )
+
+    trainer_config = TrainerConfig(
+        grad_clipping=1,
+        patience=10_000,
+        eval_every_n_steps=2_000,
+        n_steps=30_000,
+    )
+
+    logger = Logger()
+
+    rng, key = jax.random.split(rng)
+    model_diff = get_model(key, sampler_config.dim, model_config)
+    loss = DiffLoss(fn=fn, grad_log_prob=grad_log_prob, noise_std=1.0)
+
+    scheduler = get_scheduler(
+        "exponential",
+        init_value=1e-4,
+        transition_steps=20_000,
+        decay_rate=0.9,
+    )
+
+    optimizer = get_optimizer(scheduler, "adamw", weight_decay=1e-1)
+
+    trainer = CVTrainer(
+        model_diff,
+        fn,
+        grad_log_prob,
+        train_dataloader,
+        eval_dataloader,
+        optimizer,
+        loss,
+        logger,
+        **asdict(trainer_config),
+    )
+    rng, key = jax.random.split(rng)
+    model_diff = trainer.train(key)
+
+    generator_diff = ScalarGenerator(grad_log_prob, model_diff)
+    fn_with_cv = lambda x: fn(x) + generator_diff(x)
+
+    rng, key = jax.random.split(rng)
+    results["diff"] = estimate(key, fn_with_cv, estimator_config)
+    print(results["diff"]["bias"], results["diff"]["std"])
+
+
+base_exp()
+diffusion_exp()
+diffusion_als_exp()
+diff_exp()
 
 print({key: f"{results[key]['bias']: .3f}" for key in results})
 print({key: f"{results[key]['std']: .3f}" for key in results})
