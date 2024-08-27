@@ -126,3 +126,43 @@ class MALASampler(LangevinSampler):
             init_std=init_std,
             step="mala",
         )
+
+
+class AnnealedLangevinSampler(Sampler):
+    def __init__(
+        self,
+        log_prob: tp.Callable,
+        dim: int,
+        epsilon: float,
+        sigma_schedule: jnp.ndarray,
+        T: int = 1000,
+        init_std: float = 1.0,
+    ):
+        super().__init__(
+            dim=dim,
+            init_std=init_std,
+        )
+        self.log_prob = log_prob
+        self.grad_log_prob = jax.jit(jax.grad(log_prob))
+        self.epsilon = epsilon
+        self.sigma_schedule = sigma_schedule
+        self.T = T
+
+    @eqx.filter_jit
+    def __call__(
+        self,
+        key: jax.random.PRNGKey,
+        steps: int = 1_000,
+        burnin_steps: int = 1_000,
+        n_chains: int = 1,
+        skip_steps: int = 1,
+    ):
+        key1, key2 = jax.random.split(key, 2)
+        starter_points = (
+            jax.random.normal(key1, shape=(n_chains, self.dim)) * self.init_std
+        )
+        starter_keys = jax.random.split(key2, n_chains)
+        samples = jax.vmap(self.sample_chain, in_axes=(0, 0, None, None, None))(
+            starter_points, starter_keys, steps, burnin_steps, skip_steps
+        )
+        return samples
