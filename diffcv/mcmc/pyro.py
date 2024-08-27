@@ -14,17 +14,11 @@ class PyroSampler(Sampler):
         self,
         kernel: MCMCKernel,
         dim: int,
-        n_samples: int = 1000,
-        burnin_steps: int = 0,
         init_std: float = 1.0,
-        skip_samples: int = 1,
     ):
         super().__init__(
             dim=dim,
-            n_samples=n_samples,
-            burnin_steps=burnin_steps,
             init_std=init_std,
-            skip_samples=skip_samples,
         )
         self.kernel = kernel
 
@@ -63,10 +57,7 @@ class HMCSampler(PyroSampler):
         log_prob: tp.Callable,
         dim: int,
         gamma: float = 5e-3,
-        n_samples: int = 1000,
-        burnin_steps: int = 0,
         init_std: float = 1.0,
-        skip_samples: int = 1,
     ):
         potential_fn = jax.jit(lambda x: -log_prob(x).squeeze())
         kernel = HMC(
@@ -78,8 +69,5 @@ class HMCSampler(PyroSampler):
         super().__init__(
             kernel=kernel,
             dim=dim,
-            n_samples=n_samples,
-            burnin_steps=burnin_steps,
             init_std=init_std,
-            skip_samples=skip_samples,
         )

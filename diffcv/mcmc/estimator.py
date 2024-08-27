@@ -30,7 +30,7 @@ class Estimator:
             samples = self.sampler(
                 exp_key, **asdict(config.sampling_config), n_chains=n_chains
             )
-            samples = samples.reshape(-1, samples.shape[-1])
+            samples = samples.reshape(-1, samples.shape[-1])[: config.total_samples]
             estimates.append(jax.vmap(self.fn)(samples).mean())
         estimates = jnp.stack(estimates)
         return estimates
