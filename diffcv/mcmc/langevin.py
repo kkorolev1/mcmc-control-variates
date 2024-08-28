@@ -134,7 +134,7 @@ class AnnealedLangevinSampler(Sampler):
         log_prob: tp.Callable,
         dim: int,
         epsilon: float,
-        sigma_schedule: jnp.ndarray,
+        var_schedule: jnp.ndarray,
         T: int = 1000,
         init_std: float = 1.0,
     ):
@@ -145,8 +145,38 @@ class AnnealedLangevinSampler(Sampler):
         self.log_prob = log_prob
         self.grad_log_prob = jax.jit(jax.grad(log_prob))
         self.epsilon = epsilon
-        self.sigma_schedule = sigma_schedule
+        self.var_schedule = var_schedule
         self.T = T
+
+    @eqx.filter_jit
+    def sample_chain(
+        self,
+        x: jnp.ndarray,
+        key: random.PRNGKey,
+        steps: int = 1_000,
+        burnin_steps: int = 1_000,
+        skip_steps: int = 1,
+    ):
+        def substep(prev_x, args):
+            alpha, key = args
+            z = random.normal(key, shape=x.shape)
+            new_x = (
+                prev_x + 0.5 * alpha * self.grad_log_prob(prev_x) + jnp.sqrt(alpha) * z
+            )
+            return new_x, prev_x
+
+        def step(prev_x, args):
+            alpha, key = args
+            alphas = jnp.asarray([alpha] * self.T)
+            keys = random.split(key, self.T)
+            new_x, _ = jax.lax.scan(substep, init=prev_x, xs=(alphas, keys))
+            return new_x, prev_x
+
+        alphas = self.epsilon * self.var_schedule / self.var_schedule[-1]
+        keys = random.split(key, skip_steps * steps + burnin_steps)
+        _, xs = jax.lax.scan(step, init=x, xs=(alphas, keys))
+        xs = jnp.vstack(xs)
+        return xs[burnin_steps:][::skip_steps]
 
     @eqx.filter_jit
     def __call__(
