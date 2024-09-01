@@ -134,7 +134,6 @@ class AnnealedLangevinSampler(Sampler):
         log_prob: tp.Callable,
         dim: int,
         epsilon: float,
-        var_schedule: jnp.ndarray,
         T: int = 1000,
         init_std: float = 1.0,
     ):
@@ -145,7 +144,6 @@ class AnnealedLangevinSampler(Sampler):
         self.log_prob = log_prob
         self.grad_log_prob = jax.jit(jax.grad(log_prob))
         self.epsilon = epsilon
-        self.var_schedule = var_schedule
         self.T = T
 
     @eqx.filter_jit
@@ -172,8 +170,10 @@ class AnnealedLangevinSampler(Sampler):
             new_x, _ = jax.lax.scan(substep, init=prev_x, xs=(alphas, keys))
             return new_x, prev_x
 
-        alphas = self.epsilon * self.var_schedule / self.var_schedule[-1]
-        keys = random.split(key, skip_steps * steps + burnin_steps)
+        total_steps = skip_steps * steps + burnin_steps
+        var_schedule = jnp.geomspace(1, 0.1, total_steps)
+        alphas = self.epsilon * var_schedule / var_schedule[-1]
+        keys = random.split(key, total_steps)
         _, xs = jax.lax.scan(step, init=x, xs=(alphas, keys))
         xs = jnp.vstack(xs)
         return xs[burnin_steps:][::skip_steps]
